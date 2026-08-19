@@ -48,13 +48,14 @@ def _mask_name(text: str) -> str:
     return text[:keep] + NAME_MASK_CHAR * (len(text) - keep)
 
 
-_ADDR_PREFIX_RE = re.compile("^" + _CITY + _DIST)
+# 縣市可有可無（「板橋區…」這類未寫縣市的地址保留到行政區層級即可）
+_ADDR_PREFIX_RE = re.compile("^(?:" + _CITY + ")?" + _DIST)
 
 
 def _mask_address(text: str) -> str:
     """保留到鄉鎮市區層級（去識別化常規做法），其餘遮罩。"""
     m = _ADDR_PREFIX_RE.match(text)
-    if m and m.end() < len(text):
+    if m and 0 < m.end() < len(text):
         return m.group(0) + MASK_CHAR * 3
     return mask_keep(text, 3, 0)
 
@@ -83,6 +84,8 @@ _PARTIAL_MASKERS: Dict[str, Callable[[str], str]] = {
     "email": _mask_email,
     "birthdate": _mask_date,                              # 民國**年*月**日
     "address": _mask_address,                             # 台北市大安區***
+    "address_ctx": _mask_address,
+    "address_bare": _mask_address,
     "plate": lambda t: mask_keep(t, 2, 0),
     "name": _mask_name,                                   # 王○○
     "name_honorific": _mask_name,

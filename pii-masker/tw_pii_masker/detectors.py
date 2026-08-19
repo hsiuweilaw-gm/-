@@ -190,18 +190,36 @@ def _has_context(text: str, start: int, end: int,
 # ---------------------------------------------------------------------------
 
 # 台灣地址：縣市 + (鄉鎮市區) + (村里鄰) + (路街段) + (巷弄) + 號 + (樓/室)
+# 縣市含 2010 年改制前的舊縣名（台北縣、桃園縣、台中縣、台南縣、高雄縣），
+# 舊文件、戶籍謄本、保單上仍常出現
 _CITY = (
     r"(?:[臺台]北市|新北市|桃園市|[臺台]中市|[臺台]南市|高雄市|基隆市|新竹市|新竹縣|"
     r"嘉義市|嘉義縣|苗栗縣|彰化縣|南投縣|雲林縣|屏東縣|宜蘭縣|花蓮縣|[臺台]東縣|"
-    r"澎湖縣|金門縣|連江縣)"
+    r"澎湖縣|金門縣|連江縣|[臺台]北縣|桃園縣|[臺台]中縣|[臺台]南縣|高雄縣)"
 )
-_DIST = r"(?:[一-鿿]{1,3}[區鄉鎮市])?"
+_DIST = r"(?:[一-鿿]{1,3}?[區鄉鎮市])?"  # 懶惰比對，避免吃掉「市府路」的「市」
 _VILLAGE = r"(?:[一-鿿]{1,4}[村里])?(?:[0-9０-９]{1,3}鄰)?"
 _ROAD = r"(?:[一-鿿0-9０-９]{1,10}(?:路|街|大道)(?:[0-9０-９一二三四五六七八九十]{1,3}段)?)?"
 _LANE = r"(?:[0-9０-９]{1,4}巷)?(?:[0-9０-９]{1,4}弄)?"
-_NUMBER = r"[0-9０-９]{1,5}(?:之[0-9０-９]{1,3})?號"
-_FLOOR = r"(?:[0-9０-９]{1,3}樓(?:之[0-9０-９]{1,3})?)?(?:[0-9０-９]{1,4}室)?"
+_NUMBER = r"[0-9０-９]{1,5}(?:[之\-－][0-9０-９]{1,3})?號"
+_FLOOR = (
+    r"(?:[0-9０-９]{1,3}\s?(?:樓|[Ff])(?:之[0-9０-９]{1,3})?)?"
+    r"(?:[0-9０-９]{1,4}室)?"
+)
 _ADDRESS_RE = _CITY + _DIST + _VILLAGE + _ROAD + _LANE + _NUMBER + _FLOOR
+
+# 未寫縣市的地址（例：板橋區文化路一段23號5樓）：
+# 從行政區/道路層級開始比對，須搭配「地址」類關鍵字或表格提示才觸發，避免誤判
+_ADDR_NO_CITY_RE = (
+    r"[一-鿿]{1,4}[區鄉鎮市村里]?" + _VILLAGE + _ROAD + _LANE + _NUMBER + _FLOOR
+)
+_ADDR_LABELS = ("地址", "住址", "戶籍", "居所", "住居所", "通訊處", "居住地",
+                "通訊地址", "聯絡地址", "寄送地址", "營業地址", "地點")
+
+
+def _validate_no_city_address(value: str) -> bool:
+    # 必須含道路／巷弄／行政區層級字樣，排除「編號123號」這類非地址內容
+    return any(k in value for k in ("路", "街", "大道", "巷", "弄", "區", "鄉", "鎮", "村", "里"))
 
 # 出生日期（民國 / 西元 / 數字分隔）
 _DATE_ROC = r"民國\s*[0-9０-９]{1,3}\s*年\s*[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日"
@@ -254,8 +272,14 @@ DETECTORS: List[Detector] = [
         pattern=re.compile(r"(?<![\dA-Za-z+])09\d{2}[ -]?\d{3}[ -]?\d{3}(?!\d)|(?<![\dA-Za-z])\+886[ -]?9\d{2}[ -]?\d{3}[ -]?\d{3}(?!\d)"),
     ),
     Detector(
+        # 三種形態：括號/分隔符號區碼（(02)2712-3456、037-123456）、
+        # 無分隔符號連續數字（0223456789，Excel 匯出常見）
         name="landline", label="市內電話", priority=21,
-        pattern=re.compile(r"(?<!\d)(?:\(0(?!9)\d{1,3}\)|0(?!9)\d{1,3}[ -])\s?\d{3,4}[ -]?\d{4}(?!\d)"),
+        pattern=re.compile(
+            r"(?<!\d)(?:\(0(?!9)\d{1,3}\)|0(?!9)\d{1,3}[ -])\s?\d{3,4}[ -]?\d{3,4}(?!\d)"
+            r"|(?<![\dA-Za-z.+-])0(?!9)\d{8,9}(?!\d)"
+        ),
+        validator=lambda v: 9 <= sum(c.isdigit() for c in v) <= 10,
     ),
     Detector(
         name="email", label="電子郵件", priority=22,
@@ -270,6 +294,24 @@ DETECTORS: List[Detector] = [
     Detector(
         name="address", label="地址", priority=40,
         pattern=re.compile(_ADDRESS_RE),
+    ),
+    Detector(
+        # 未寫縣市、但前面有「地址：」等標籤的地址
+        name="address_ctx", label="地址(未含縣市)", priority=41,
+        pattern=re.compile(
+            "(?:" + "|".join(_ADDR_LABELS) + r")\s*[:：]?\s*(" + _ADDR_NO_CITY_RE + ")"
+        ),
+        validator=_validate_no_city_address,
+        group=1,
+    ),
+    Detector(
+        # 整格內容是未寫縣市的地址（試算表「地址」欄常見），須表格提示觸發
+        name="address_bare", label="地址(表格)", priority=42,
+        pattern=re.compile(r"\A\s*(" + _ADDR_NO_CITY_RE + r")\s*\Z"),
+        validator=_validate_no_city_address,
+        context=_ADDR_LABELS,
+        context_before=0, context_after=0,
+        group=1,
     ),
     Detector(
         name="plate", label="車牌號碼", priority=45,

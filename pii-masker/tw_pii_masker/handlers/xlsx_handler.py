@@ -14,11 +14,17 @@
 """
 from __future__ import annotations
 
+import re
+
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-from ..engine import MaskingEngine
+from ..engine import MaskedItem, MaskingEngine
+from ..masking import mask_digits_keep
 from ..report import Report
+
+# 儲存格為「數值」但欄位提示顯示是電話時，補回開頭的 0 並遮罩
+_PHONE_HINT_RE = re.compile(r"電話|手機|行動|傳真|TEL|Tel|tel|Phone|phone|Mobile|mobile|FAX|Fax|fax")
 
 
 def mask_xlsx(input_path: str, output_path: str,
@@ -38,12 +44,6 @@ def mask_xlsx(input_path: str, output_path: str,
         for row in ws.iter_rows():
             for cell in row:
                 v = cell.value
-                if not isinstance(v, str) or not v:
-                    continue
-                if v.startswith("="):
-                    if engine.scan(v):
-                        formula_hits += 1
-                    continue
                 # 前後文提示：同欄表頭（第 1 列）、左側與上方儲存格，
                 # 讓「姓名」欄底下的純姓名、表單式左標籤右值都能被判斷
                 hints = []
@@ -53,10 +53,29 @@ def mask_xlsx(input_path: str, output_path: str,
                 if cell.column > 1:
                     hints.append(ws.cell(row=cell.row, column=cell.column - 1).value)
                 hint = "\n".join(h for h in hints if isinstance(h, str) and h)
+                loc = "工作表「%s」儲存格 %s%d" % (
+                    ws.title, get_column_letter(cell.column), cell.row)
+
+                # 電話被存成「數值」時開頭的 0 會消失（如 912345678），
+                # 依欄位提示補回 0 後遮罩，並轉為文字避免再度流失
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    if float(v).is_integer() and v > 0:
+                        digits = str(int(v))
+                        if 8 <= len(digits) <= 9 and _PHONE_HINT_RE.search(hint):
+                            masked = mask_digits_keep("0" + digits, 4, 2)
+                            cell.value = masked
+                            report.add(loc, MaskedItem(
+                                "phone_numeric", "電話(數值)", "0" + digits, masked))
+                    continue
+
+                if not isinstance(v, str) or not v:
+                    continue
+                if v.startswith("="):
+                    if engine.scan(v):
+                        formula_hits += 1
+                    continue
                 new_value, items = engine.mask_text(v, context_hint=hint)
                 if items:
-                    loc = "工作表「%s」儲存格 %s%d" % (
-                        ws.title, get_column_letter(cell.column), cell.row)
                     report.add_all(loc, items)
                     cell.value = new_value
         if formula_hits:
