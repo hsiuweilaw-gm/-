@@ -37,6 +37,7 @@ def mask_pdf(input_path: str, output_path: str,
             raise ValueError("此 PDF 已加密，請先解除密碼保護再處理")
 
         for pno, page in enumerate(doc, 1):
+            location = "第 %d 頁" % pno
             text = page.get_text("text")
             if not text.strip():
                 if page.get_images(full=True):
@@ -45,11 +46,20 @@ def mask_pdf(input_path: str, output_path: str,
                 continue
 
             matches = engine.scan(text)
+
+            # 跨行斷開的個資（例如折行的地址）在原文比對不到——
+            # 掃描去除換行後的文字，把只在合併後出現的項目警告出來供人工複核
+            found_texts = {m.text for m in matches}
+            for extra in engine.scan(text.replace("\n", "")):
+                if extra.text not in found_texts:
+                    report.warn("%s：偵測到疑似跨行斷開的%s（遮罩後應為「%s」），"
+                                "無法自動定位，請人工確認"
+                                % (location, extra.label, engine.replacement(extra)))
+
             if not matches:
                 continue
 
             searched = set()
-            location = "第 %d 頁" % pno
             for m in matches:
                 repl = engine.replacement(m)
                 report.add(location, MaskedItem(m.type, m.label, m.text, repl))

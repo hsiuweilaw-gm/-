@@ -210,3 +210,56 @@ def test_types_filter():
 def test_unknown_type_rejected():
     with pytest.raises(ValueError):
         MaskingEngine(types=["not_a_type"])
+
+
+# ---------------------------------------------------------------------------
+# v1.1.0：地址／電話漏抓修正的回歸測試
+# ---------------------------------------------------------------------------
+
+def test_landline_no_separator():
+    hits = scan("電話：0223456789")
+    assert any(h.type == "landline" for h in hits)
+
+
+def test_landline_six_digit_subscriber():
+    hits = scan("電話：037-123456")
+    assert any(h.type == "landline" for h in hits)
+
+
+def test_landline_not_matching_mobile_or_ubn():
+    assert all(h.type == "mobile" for h in scan("0912345678"))
+    assert scan("編號 04595257 筆") == []          # 8 碼數字非市話
+    hits = scan("健保卡號 000012345678")
+    assert [h.type for h in hits] == ["nhi_card"]  # 12 碼不可被市話搶走
+
+
+def test_address_without_city_needs_label():
+    assert scan("板橋區文化路一段23號5樓") == []   # 無標籤不觸發，避免誤判
+    hits = scan("地址：板橋區文化路一段23號5樓")
+    assert hits and hits[0].type == "address_ctx"
+    assert hits[0].text == "板橋區文化路一段23號5樓"
+
+
+def test_address_legacy_county():
+    hits = scan("住址：台北縣板橋市文化路100號")
+    assert hits and hits[0].type == "address"
+
+
+def test_address_dash_number_and_letter_floor():
+    hits = scan("台北市信義區市府路45-1號")
+    assert hits and hits[0].text.endswith("45-1號")
+    hits = scan("高雄市苓雅區四維三路2號3F")
+    assert hits and hits[0].text.endswith("3F")
+
+
+def test_mask_address_without_city_keeps_district():
+    engine = MaskingEngine()
+    out, _ = engine.mask_text("地址：板橋區文化路一段23號5樓")
+    assert "板橋區" in out
+    assert "文化路" not in out
+
+
+def test_district_not_swallowing_road():
+    engine = MaskingEngine()
+    out, _ = engine.mask_text("台北市信義區市府路45-1號")
+    assert "台北市信義區***" in out

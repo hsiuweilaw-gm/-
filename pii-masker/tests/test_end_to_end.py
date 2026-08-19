@@ -118,3 +118,21 @@ def test_txt_masking(tmp_path):
     out = (tmp_path / "note_masked.txt").read_text(encoding="utf-8")
     assert "A123456789" not in out
     assert "0912345678" not in out
+
+
+def test_xlsx_numeric_phone_and_bare_address(tmp_path):
+    from openpyxl import Workbook, load_workbook
+    src = tmp_path / "名單.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["姓名", "行動電話", "地址"])
+    ws.append(["王小明", 912345678, "板橋區文化路一段23號5樓"])  # 電話存成數值、地址未含縣市
+    wb.save(src)
+    rc = run([str(src)])
+    assert rc == 0
+    out = load_workbook(tmp_path / "名單_masked.xlsx").active
+    values = " | ".join(str(c.value) for row in out.iter_rows() for c in row)
+    assert "912345678" not in values
+    assert "0912****78" in values      # 補回開頭的 0 再遮罩
+    assert "文化路" not in values
+    assert "板橋區" in values

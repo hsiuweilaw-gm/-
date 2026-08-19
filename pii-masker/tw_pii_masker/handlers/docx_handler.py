@@ -46,9 +46,28 @@ def _replace_span(runs, start: int, end: int, replacement: str) -> None:
             r.text = t[:local_start] + t[local_end:]
 
 
+def _para_runs(para: Paragraph):
+    """取得段落內所有 run，含超連結內的 run。
+
+    Word 會自動把 Email、電話、網址轉成超連結，這些文字不在 para.runs 裡，
+    須經由 iter_inner_content() 走訪 Hyperlink 物件取得。
+    """
+    try:
+        from docx.text.hyperlink import Hyperlink
+        runs = []
+        for item in para.iter_inner_content():
+            if isinstance(item, Hyperlink):
+                runs.extend(item.runs)
+            else:
+                runs.append(item)
+        return runs
+    except Exception:
+        return para.runs
+
+
 def _mask_paragraph(para: Paragraph, engine: MaskingEngine,
                     report: Report, location: str, hint: str = "") -> int:
-    runs = para.runs
+    runs = _para_runs(para)
     text = "".join(r.text for r in runs)
     if not text:
         return 0
