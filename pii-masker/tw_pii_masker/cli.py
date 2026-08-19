@@ -154,7 +154,7 @@ def run(argv: List[str] = None) -> int:
         report.save_json(args.report)
         print("JSON 報告已存至：%s" % args.report)
         if args.show_original:
-            print("⚠ 報告內含原始個資，請妥善保管、用畢刪除。")
+            print("[注意] 報告內含原始個資，請妥善保管、用畢刪除。")
     return 1 if failed else 0
 
 
@@ -168,7 +168,21 @@ def _dry_run(src: Path, handler: Callable, engine: MaskingEngine,
 
 
 def main() -> None:
-    sys.exit(run())
+    if sys.platform == "win32":
+        # Windows 主控台編碼（cp950）遇到無法顯示的字元時以 ? 取代，避免中斷
+        try:
+            sys.stdout.reconfigure(errors="replace")
+            sys.stderr.reconfigure(errors="replace")
+        except Exception:
+            pass
+    code = run()
+    # 打包成 .exe 後，拖曳檔案或雙擊執行時讓使用者看得到結果再關閉視窗
+    if getattr(sys, "frozen", False) and sys.platform == "win32":
+        try:
+            input("\n按 Enter 鍵關閉視窗...")
+        except Exception:  # 無互動式輸入（如 CI）時直接結束
+            pass
+    sys.exit(code)
 
 
 if __name__ == "__main__":

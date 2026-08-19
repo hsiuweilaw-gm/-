@@ -76,12 +76,13 @@ class Report:
 
     # ------------------------------------------------------------------
     def print_summary(self) -> None:
+        # 輸出僅使用 ASCII 符號裝飾，避免 Windows 主控台（cp950）無法顯示
         total = 0
         for fr in self.files:
-            print("─" * 60)
+            print("-" * 60)
             print("檔案：%s" % fr.input_path)
             if fr.error:
-                print("  ✗ 處理失敗：%s" % fr.error)
+                print("  [失敗] %s" % fr.error)
                 continue
             counts = fr.counts()
             n = len(fr.findings)
@@ -90,13 +91,13 @@ class Report:
                 print("  未偵測到個資。")
             else:
                 for label, c in sorted(counts.items(), key=lambda kv: -kv[1]):
-                    print("  ・%s：%d 筆" % (label, c))
+                    print("  - %s：%d 筆" % (label, c))
                 print("  共遮罩 %d 筆" % n)
             for w in fr.warnings:
-                print("  ⚠ %s" % w)
+                print("  [注意] %s" % w)
             if fr.output_path:
-                print("  → 輸出：%s" % fr.output_path)
-        print("─" * 60)
+                print("  輸出：%s" % fr.output_path)
+        print("-" * 60)
         print("完成，共處理 %d 個檔案、遮罩 %d 筆個資。" % (len(self.files), total))
 
     def to_json(self) -> str:
