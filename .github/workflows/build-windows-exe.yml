@@ -1,0 +1,88 @@
+name: build-windows-exe
+
+# 在 Windows 建置機上以 PyInstaller 打包免安裝執行檔，
+# 通過測試套件與實機煙霧測試後發佈到 GitHub Release。
+# 觸發方式：手動觸發（workflow_dispatch）或推送 v* 標籤。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "發佈版本標籤（如 v1.0.0）"
+        required: false
+        default: "v1.0.0"
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.version }}
+    defaults:
+      run:
+        working-directory: pii-masker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller pytest
+
+      - name: Run test suite
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m pytest tests/ -q
+
+      - name: Build GUI exe
+        run: pyinstaller --onefile --windowed --name TWPIIMasker-GUI packaging/entry_gui.py
+
+      - name: Build CLI exe
+        run: pyinstaller --onefile --console --name twmask packaging/entry_cli.py
+
+      - name: Smoke test built exe
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python samples/make_samples.py smoke
+          .\dist\twmask.exe smoke\示範_理賠申請書.docx smoke\示範_客戶名單.xlsx smoke\示範_契約通知書.pdf
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not (Test-Path "smoke\示範_理賠申請書_masked.docx")) { Write-Error "docx output missing"; exit 1 }
+          if (-not (Test-Path "smoke\示範_客戶名單_masked.xlsx")) { Write-Error "xlsx output missing"; exit 1 }
+          if (-not (Test-Path "smoke\示範_契約通知書_masked.pdf")) { Write-Error "pdf output missing"; exit 1 }
+          if (-not (Test-Path "dist\TWPIIMasker-GUI.exe")) { Write-Error "GUI exe missing"; exit 1 }
+
+      - name: Delete existing release of same version (rebuild case)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "$env:VERSION" -y --cleanup-tag
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create "$env:VERSION"
+          dist/TWPIIMasker-GUI.exe dist/twmask.exe
+          --target ${{ github.sha }}
+          --title "台灣個資遮罩工具 $env:VERSION（Windows 免安裝版）"
+          --notes-file packaging/release-notes.md
+
+      - name: Mark build done
+        if: success()
+        run: |
+          git tag -f "build-done-$env:VERSION"
+          git push -f origin "build-done-$env:VERSION"
+
+      - name: Mark build failed
+        if: failure()
+        run: |
+          git tag -f "build-failed-$env:VERSION"
+          git push -f origin "build-failed-$env:VERSION"

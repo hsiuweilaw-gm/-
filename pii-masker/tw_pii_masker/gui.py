@@ -110,13 +110,13 @@ class App:
                 total_hits += hits
                 done += 1
                 detail = "、".join("%s×%d" % (k, v) for k, v in counts.items()) or "未偵測到個資"
-                self._log_async("  ✓ %s → %s" % (detail, out.name))
+                self._log_async("  [完成] %s → 輸出 %s" % (detail, out.name))
                 for w in fr.warnings:
-                    self._log_async("  ⚠ %s" % w)
+                    self._log_async("  [注意] %s" % w)
             except Exception as exc:
                 failed += 1
-                self._log_async("  ✗ 失敗：%s" % exc)
-        self._log_async("─" * 40)
+                self._log_async("  [失敗] %s" % exc)
+        self._log_async("-" * 50)
         self._log_async("完成：成功 %d、失敗 %d，共遮罩 %d 筆個資。" % (done, failed, total_hits))
         self.root.after(0, lambda: self.run_btn.configure(state="normal"))
 
