@@ -136,3 +136,25 @@ def test_xlsx_numeric_phone_and_bare_address(tmp_path):
     assert "0912****78" in values      # 補回開頭的 0 再遮罩
     assert "文化路" not in values
     assert "板橋區" in values
+
+
+def test_xlsx_datetime_birthday_and_new_columns(tmp_path):
+    import datetime
+    from openpyxl import Workbook, load_workbook
+    src = tmp_path / "名冊.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["姓名", "生日 (YYYY-MM-DD)", "推介者名稱", "壽險證照號碼", "戶籍地址"])
+    ws.append(["陶柏勲", datetime.date(1975, 3, 12), "葛昇威", "B103900033", "745號"])
+    wb.save(src)
+    rc = run([str(src)])
+    assert rc == 0
+    out = load_workbook(tmp_path / "名冊_masked.xlsx").active
+    values = " | ".join(str(c.value) for row in out.iter_rows() for c in row)
+    assert "陶柏勲" not in values and "陶○○" in values
+    assert "1975" not in values and "****-**-**" in values
+    assert "葛昇威" not in values
+    assert "B103900033" not in values
+    assert "745號" not in values
+    # 表頭不得被遮
+    assert "姓名" in values and "壽險證照號碼" in values

@@ -136,13 +136,38 @@ _SURNAME_ALT = "(?:" + "|".join(_SURNAMES_COMPOUND) + "|" + _SURNAME_CLASS + ")"
 _NAME_LABELS = (
     "姓名|收件人|申請人|當事人|聯絡人|負責人|受文者|立書人|立契約書人|要保人|"
     "被保險人|受益人|保戶|業務員|經辦人|承辦人|代理人|法定代理人|受款人|借款人|"
-    "保證人|客戶|病患|患者|員工"
+    "保證人|客戶|病患|患者|員工|推介者|輔導者|繼承人|介紹人|招攬人|推薦人|主管"
 )
+
+# 姓名欄常見的「關係稱謂」等非姓名內容，不遮
+_RELATION_WORDS = {
+    "父親", "母親", "配偶", "兒子", "女兒", "先生", "太太", "朋友", "同事",
+    "兄弟", "姊妹", "哥哥", "弟弟", "姊姊", "妹妹", "祖父", "祖母", "外公",
+    "外婆", "家人", "親屬", "本人", "同上", "無", "不詳", "未填",
+}
 
 
 def _validate_person_name(value: str) -> bool:
     # 「陳述意見」這類以停用詞開頭的詞組也一併排除
     return not any(value.startswith(w) for w in _NAME_STOPWORDS)
+
+
+# 看起來是「欄位標題」而非姓名的詞彙（表頭儲存格、表單標籤不可誤遮）
+_FIELD_WORDS = (
+    "姓名", "名稱", "電話", "手機", "行動", "地址", "住址", "身分", "身份",
+    "生日", "性別", "郵件", "信箱", "電子", "號碼", "日期", "帳號", "銀行",
+    "統編", "編號", "代號", "狀態", "備註", "證照", "考試", "資格", "單位",
+)
+
+
+def _validate_bare_name(value: str) -> bool:
+    if value in _RELATION_WORDS:
+        return False
+    if any(w in value for w in _FIELD_WORDS):
+        return False
+    # 姓名欄整格內容是強力訊號：停用詞採「完全相等」比對即可——
+    # 用「開頭比對」會誤傷黃金燕、徐行康、王國政這類真實姓名
+    return value not in _NAME_STOPWORDS
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +228,7 @@ _ROAD = r"(?:[一-鿿0-9０-９]{1,10}(?:路|街|大道)(?:[0-9０-９一二三�
 _LANE = r"(?:[0-9０-９]{1,4}巷)?(?:[0-9０-９]{1,4}弄)?"
 _NUMBER = r"[0-9０-９]{1,5}(?:[之\-－][0-9０-９]{1,3})?號"
 _FLOOR = (
-    r"(?:[0-9０-９]{1,3}\s?(?:樓|[Ff])(?:之[0-9０-９]{1,3})?)?"
+    r"(?:[0-9０-９一二三四五六七八九十]{1,3}\s?(?:樓|[Ff])(?:之[0-9０-９]{1,3})?)?"
     r"(?:[0-9０-９]{1,4}室)?"
 )
 _ADDRESS_RE = _CITY + _DIST + _VILLAGE + _ROAD + _LANE + _NUMBER + _FLOOR
@@ -220,6 +245,26 @@ _ADDR_LABELS = ("地址", "住址", "戶籍", "居所", "住居所", "通訊處"
 def _validate_no_city_address(value: str) -> bool:
     # 必須含道路／巷弄／行政區層級字樣，排除「編號123號」這類非地址內容
     return any(k in value for k in ("路", "街", "大道", "巷", "弄", "區", "鄉", "鎮", "村", "里"))
+
+
+def _validate_cell_address(value: str) -> bool:
+    """整格地址（地址欄）驗證。地址欄常只存門牌片段（縣市、鄉鎮市區在
+    其他欄位），例如「745號」「東園街73巷49號二樓」「民旅西路」，
+    格式驗證放寬、由欄位提示把關。
+
+    注意：「大安區」「台北市」這類行政區層級內容不遮（去識別化常規
+    是保留到鄉鎮市區），村里與道路以下才遮。
+    """
+    value = value.strip()
+    # 含道路／村里層級字樣（含純路名）
+    if any(k in value for k in ("路", "街", "大道", "巷", "弄", "村", "里")):
+        return True
+    # 含門牌號
+    if re.search(r"[0-9０-９一-鿿]\s*號", value):
+        return True
+    # 舊版遮罩截斷殘留（如「慈惠三****」：路字被星號蓋掉），重新全遮；
+    # 「台北市大安區***」這類合規輸出經 _mask_address 重遮結果不變
+    return re.fullmatch(r"[一-鿿]{1,6}[*＊]+", value) is not None
 
 # 出生日期（民國 / 西元 / 數字分隔）
 _DATE_ROC = r"民國\s*[0-9０-９]{1,3}\s*年\s*[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日"
@@ -263,7 +308,7 @@ DETECTORS: List[Detector] = [
     Detector(
         name="bank_account", label="銀行帳號", priority=25,
         pattern=re.compile(r"(?<!\d)\d{3,4}(?:[ -]?\d{2,6}){2,4}(?!\d)"),
-        validator=lambda v: 10 <= sum(c.isdigit() for c in v) <= 16,
+        validator=lambda v: 9 <= sum(c.isdigit() for c in v) <= 16,
         context=("帳號", "帳戶", "匯款", "轉帳", "存摺", "虛擬帳號", "銀行"),
         context_before=25,
     ),
@@ -305,10 +350,14 @@ DETECTORS: List[Detector] = [
         group=1,
     ),
     Detector(
-        # 整格內容是未寫縣市的地址（試算表「地址」欄常見），須表格提示觸發
+        # 整格內容是地址片段（試算表「地址」欄常見：縣市鄉鎮在其他欄位，
+        # 本欄只有「745號」「東園街73巷49號二樓」等），須表格提示觸發。
+        # 格式驗證放寬（由 validator 確認含門牌或道路層級字樣）
+        # 整格照遮：門牌後常掛「B１」「五樓之ㄧ」「(公司名)」等不規則字尾，
+        # 由 validator 確認含門牌或道路層級字樣即可
         name="address_bare", label="地址(表格)", priority=42,
-        pattern=re.compile(r"\A\s*(" + _ADDR_NO_CITY_RE + r")\s*\Z"),
-        validator=_validate_no_city_address,
+        pattern=re.compile(r"\A\s*(\S[^\n]{0,78}?)\s*\Z"),
+        validator=_validate_cell_address,
         context=_ADDR_LABELS,
         context_before=0, context_after=0,
         group=1,
@@ -333,14 +382,52 @@ DETECTORS: List[Detector] = [
         validator=_validate_person_name,
     ),
     Detector(
-        # 整格內容就是一個姓名（表單／試算表常見：標籤在左欄或表頭，值在另一格）
-        # 僅在外部提示文字（context_hint）含姓名相關標籤時觸發
+        # 整格內容就是一個姓名（表單／試算表常見：標籤在左欄或表頭，值在另一格）。
+        # 僅在外部提示文字（context_hint）含姓名相關標籤時觸發；
+        # 欄位標題已是強力訊號，因此「不」要求姓氏在姓氏庫內
+        # （姓氏庫列不完：陶、葛、錢…都曾造成漏遮），並支援原住民名字的間隔號
         name="name_bare", label="姓名(表格)", priority=52,
-        pattern=re.compile(r"\A\s*(" + _SURNAME_ALT + r"[一-鿿]{1,3})\s*\Z"),
-        validator=_validate_person_name,
+        pattern=re.compile(r"\A\s*([一-鿿][一-鿿·]{1,6})\s*\Z"),
+        validator=_validate_bare_name,
         context=tuple(_NAME_LABELS.split("|")),
         context_before=0, context_after=0,
         group=1,
+    ),
+    Detector(
+        # 整格內容是識別號碼（身分證欄的統編/舊式證號/檢查碼錯誤證號、
+        # 證照號碼、考試號碼、員工編號、帳號等欄），須表格提示觸發。
+        # 這些欄位標題已明示內容性質，不再要求檢查碼
+        name="id_bare", label="識別號碼(表格)", priority=53,
+        # 允許字尾字母／狀態碼（89731134-BD、FB1001285G），
+        # 括號附註（如「(HC-08)」）保留在遮罩範圍外
+        pattern=re.compile(
+            r"\A\s*([A-Za-z一-鿿]{0,4}[A-Za-z0-9\-]{5,20})"
+            r"(?:\s*[（(][^（()）\n]{0,20}[)）])?\s*\Z"),
+        validator=lambda v: sum(c.isdigit() for c in v) >= 6,
+        context=("身分證", "身份證", "統一證號", "證照號碼", "考試號碼",
+                 "證書字號", "員工編號", "員編", "帳號", "會員編號", "保單號碼",
+                 "病歷號", "學號"),
+        context_before=0, context_after=0,
+        group=1,
+    ),
+    Detector(
+        # 電話欄的非標準格式（無區碼、雙破折號、多值逗號分隔…），
+        # 須表格提示或前後文含電話關鍵字才觸發
+        name="phone_bare", label="電話(欄位)", priority=26,
+        pattern=re.compile(r"(?<![\dA-Za-z])[0-9][0-9\- ()]{4,17}[0-9](?!\d)"),
+        validator=lambda v: 7 <= sum(c.isdigit() for c in v) <= 12,
+        context=("電話", "手機", "行動", "傳真", "TEL", "Tel", "tel",
+                 "FAX", "Fax", "fax", "Phone", "phone", "Mobile", "mobile"),
+        context_before=12,
+    ),
+    Detector(
+        # 備註／注意事項等自由文字欄中的長數字（帳號、證號、日期序號…），
+        # 一律保守遮罩
+        name="note_digits", label="備註內號碼", priority=90,
+        pattern=re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{0,3}[0-9][0-9\-]{4,18}[0-9](?![A-Za-z0-9])"),
+        validator=lambda v: sum(c.isdigit() for c in v) >= 7,
+        context=("備註", "注意事項", "記事", "摘要", "說明"),
+        context_before=0, context_after=0,
     ),
 ]
 

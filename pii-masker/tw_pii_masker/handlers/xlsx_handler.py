@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import datetime
 import re
 
 from openpyxl import load_workbook
@@ -41,6 +42,14 @@ def mask_xlsx(input_path: str, output_path: str,
             ws.title = new_title
 
         formula_hits = 0
+        # 提示須取自「原始值」快照：若讀取已遮罩的儲存格（例如表頭或左欄
+        # 先被處理），提示會失真，導致後續儲存格誤判
+        original = {}
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value:
+                    original[(cell.row, cell.column)] = cell.value
+
         for row in ws.iter_rows():
             for cell in row:
                 v = cell.value
@@ -48,13 +57,22 @@ def mask_xlsx(input_path: str, output_path: str,
                 # 讓「姓名」欄底下的純姓名、表單式左標籤右值都能被判斷
                 hints = []
                 if cell.row > 1:
-                    hints.append(ws.cell(row=1, column=cell.column).value)
-                    hints.append(ws.cell(row=cell.row - 1, column=cell.column).value)
+                    hints.append(original.get((1, cell.column)))
+                    hints.append(original.get((cell.row - 1, cell.column)))
                 if cell.column > 1:
-                    hints.append(ws.cell(row=cell.row, column=cell.column - 1).value)
-                hint = "\n".join(h for h in hints if isinstance(h, str) and h)
+                    hints.append(original.get((cell.row, cell.column - 1)))
+                hint = "\n".join(h for h in hints if h)
                 loc = "工作表「%s」儲存格 %s%d" % (
                     ws.title, get_column_letter(cell.column), cell.row)
+
+                # 生日欄若是「日期型別」（非文字），原本不會被掃到，
+                # 依欄位提示遮罩
+                if isinstance(v, (datetime.datetime, datetime.date)):
+                    if re.search(r"生日|出生", hint):
+                        cell.value = "****-**-**"
+                        report.add(loc, MaskedItem(
+                            "birthdate", "出生日期", str(v)[:10], "****-**-**"))
+                    continue
 
                 # 電話被存成「數值」時開頭的 0 會消失（如 912345678），
                 # 依欄位提示補回 0 後遮罩，並轉為文字避免再度流失

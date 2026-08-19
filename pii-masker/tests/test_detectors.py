@@ -263,3 +263,70 @@ def test_district_not_swallowing_road():
     engine = MaskingEngine()
     out, _ = engine.mask_text("台北市信義區市府路45-1號")
     assert "台北市信義區***" in out
+
+
+# ---------------------------------------------------------------------------
+# v1.2.0：實際名冊檔案稽核發現的漏抓修正（表格提示強化）
+# ---------------------------------------------------------------------------
+
+def _hit(text, hint, type_):
+    hits = scan(text, context_hint=hint)
+    return any(h.type == type_ for h in hits)
+
+
+def test_name_bare_rare_surname():
+    # 欄位標題是強力訊號，不再要求姓氏在姓氏庫內
+    assert _hit("陶柏勲", "姓名", "name_bare")
+    assert _hit("葛昇威", "繼承人名稱", "name_bare")
+    assert _hit("徐行康", "推介者名稱", "name_bare")   # 停用詞前綴不可誤傷
+    assert _hit("黃金燕", "緊急聯絡人", "name_bare")
+
+
+def test_name_bare_rejects_non_names():
+    assert not _hit("母親", "緊急聯絡人", "name_bare")   # 關係稱謂
+    assert not _hit("行動電話", "姓名", "name_bare")     # 表頭誤入
+    assert not _hit("單位公告", "姓名", "name_bare")     # 系統帳號
+    assert not _hit("陶柏勲", "", "name_bare")           # 無提示不觸發
+
+
+def test_id_bare_variants():
+    assert _hit("89731134-BD", "身份證字號", "id_bare")     # 統編+狀態碼
+    assert _hit("B103900033", "壽險證照號碼", "id_bare")    # 證照號碼
+    assert _hit("11001051032", "產險考試號碼", "id_bare")   # 考試號碼
+    # 系統帳號：數字部分由 bank_account（提示含「帳號」）或 id_bare 認領皆可
+    hits = scan("bdv220485634", context_hint="帳號")
+    assert any(h.type in ("id_bare", "bank_account") for h in hits)
+    assert not _hit("89731134-BD", "", "id_bare")           # 無提示不觸發
+
+
+def test_address_bare_fragments():
+    for cell in ("745號", "東園街73巷49號二樓", "松江路２００號B１",
+                 "民旅西路", "慈惠三****"):
+        assert _hit(cell, "戶籍地址", "address_bare"), cell
+    # 行政區層級應保留，不遮
+    assert not _hit("大安區", "戶籍鄉鎮市區", "address_bare")
+    assert not _hit("台北市", "戶籍縣市", "address_bare")
+
+
+def test_address_fragment_full_masked():
+    engine = MaskingEngine()
+    out, items = engine.mask_text("745號", context_hint="通訊地址")
+    assert items and "745" not in out and "號" not in out
+
+
+def test_phone_bare_irregular():
+    assert _hit("29728562", "電話 (逗號分隔多值)", "phone_bare")   # 無區碼
+    assert _hit("02--28365695", "電話", "phone_bare")              # 雙破折號
+    assert not _hit("29728562", "", "phone_bare")                  # 無提示不觸發
+
+
+def test_note_digits():
+    hits = scan("114年6月停用合庫0081-008176585", context_hint="備註")
+    assert any(h.type in ("note_digits", "bank_account") for h in hits)
+    out, _ = MaskingEngine().mask_text("帳aev2314467字", context_hint="備註")
+    assert "2314467" not in out
+
+
+def test_bank_account_nine_digits():
+    hits = scan("銀行帳號：765265571")
+    assert any(h.type in ("bank_account", "landline") for h in hits)
