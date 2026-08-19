@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tw-pii-masker"
+version = "1.0.0"
+description = "台灣個資檔案遮罩工具：Word/Excel/PDF 去識別化，地端執行、不連網"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "pymupdf>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+twmask = "tw_pii_masker.cli:main"
+twmask-gui = "tw_pii_masker.gui:main"
+
+[tool.setuptools]
+packages = ["tw_pii_masker", "tw_pii_masker.handlers"]
