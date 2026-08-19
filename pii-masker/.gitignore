@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+samples/*.docx
+samples/*.xlsx
+samples/*.pdf
+*_masked.*
+report.json
