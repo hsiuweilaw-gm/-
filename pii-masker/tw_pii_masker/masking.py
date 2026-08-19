@@ -53,11 +53,14 @@ _ADDR_PREFIX_RE = re.compile("^(?:" + _CITY + ")?" + _DIST)
 
 
 def _mask_address(text: str) -> str:
-    """保留到鄉鎮市區層級（去識別化常規做法），其餘遮罩。"""
+    """保留到鄉鎮市區層級（去識別化常規做法），其餘遮罩。
+
+    地址中沒有縣市／鄉鎮市區前綴時（門牌片段如「745號」「文化路9號」），
+    整段遮罩——保留開頭反而會洩漏門牌或路名。"""
     m = _ADDR_PREFIX_RE.match(text)
     if m and 0 < m.end() < len(text):
         return m.group(0) + MASK_CHAR * 3
-    return mask_keep(text, 3, 0)
+    return MASK_CHAR * len(text)
 
 
 def _mask_email(text: str) -> str:
@@ -90,6 +93,9 @@ _PARTIAL_MASKERS: Dict[str, Callable[[str], str]] = {
     "name": _mask_name,                                   # 王○○
     "name_honorific": _mask_name,
     "name_bare": _mask_name,
+    "id_bare": lambda t: mask_digits_keep(t, 2, 2),       # B1******33
+    "phone_bare": lambda t: mask_digits_keep(t, 2, 2),
+    "note_digits": lambda t: mask_digits_keep(t, 2, 2),
 }
 
 
