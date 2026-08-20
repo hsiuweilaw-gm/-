@@ -30,7 +30,7 @@
 | 識別號碼（證照/考試/員編/帳號等欄） | `id_bare` | 表格欄位標題觸發 | `B1******33` |
 | 電話（不規則格式） | `phone_bare` | 電話欄位標題觸發（無區碼、多值等） | `29****62` |
 | 備註內號碼 | `note_digits` | 備註／注意事項欄的長數字保守全遮 | `00**-*****...` |
-| 保單號碼／受理號碼 | `policy_no` | 「保單／受理」關鍵字觸發（間接識別個資，預設遮罩；業務需保留可加 `--keep-policy-no`） | `11*****LN***23` |
+| 保單號碼／受理號碼 | `policy_no` | 「保單／受理」關鍵字觸發。**預設不遮**（保留供業務辨識），需要時加 `--mask-policy-no` | `11*****LN***23` |
 | 出生日期 | `birthdate` | 民國/西元日期 + 出生關鍵字 | `民國**年*月**日` |
 | 行動電話 | `mobile` | 09xx / +8869xx 格式 | `0912-***-678` |
 | 市內電話 | `landline` | 區碼格式 | `(02)****-**56` |
@@ -80,7 +80,7 @@ twmask 保單.docx --report result.json   # 另存 JSON 遮罩報告
 twmask 名單.xlsx -t national_id,mobile  # 只遮身分證與手機
 twmask 名單.xlsx -x ubn                 # 全部遮，但不遮統一編號
 twmask 保單.docx --all-dates            # 所有完整日期一律遮罩
-twmask 查核.xlsx --keep-policy-no       # 保留保單號碼不遮
+twmask 查核.xlsx --mask-policy-no       # 連保單號碼也一併遮罩（預設不遮）
 ```
 
 ### 圖形介面（適合不熟指令的同仁）
@@ -109,7 +109,7 @@ twmask-gui
 | `--show-original` | JSON 報告中包含原文（**報告檔本身即含個資，請妥善保管**） |
 | `--keep-metadata` | 保留文件作者等中繼資料（預設清除） |
 | `--dry-run` | 只偵測不輸出，適合先確認偵測結果 |
-| `--keep-policy-no` | 保留保單號碼／受理號碼不遮（預設遮罩） |
+| `--mask-policy-no` | 一併遮罩保單號碼／受理號碼（預設不遮，保留供業務辨識） |
 
 ## 與個資法的對應
 
@@ -163,7 +163,7 @@ twmask-gui
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest tests/       # 63 項測試：檢查碼、偵測、遮罩、一致性、三種格式端對端
+python -m pytest tests/       # 64 項測試：檢查碼、偵測、遮罩、一致性、三種格式端對端
 python samples/make_samples.py  # 產生示範檔案（虛構個資）試跑
 ```
 

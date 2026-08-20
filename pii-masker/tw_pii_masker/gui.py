@@ -53,11 +53,11 @@ class App:
 
         opt_frame = ttk.LabelFrame(root, text="選項", padding=10)
         opt_frame.pack(fill="x", padx=10, pady=(6, 0))
-        self.policy_var = tk.BooleanVar(value=True)
+        self.policy_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             opt_frame, variable=self.policy_var,
-            text="一併遮罩保單號碼／受理號碼（個資法屬間接識別資料；"
-                 "業務上需保留可取消勾選）").pack(anchor="w")
+            text="一併遮罩保單號碼／受理號碼（預設不遮，保留供業務辨識）"
+            ).pack(anchor="w")
 
         run_frame = ttk.Frame(root, padding=10)
         run_frame.pack(fill="x")
@@ -103,12 +103,12 @@ class App:
         threading.Thread(target=self._work, daemon=True).start()
 
     def _work(self):
-        exclude = None if self.policy_var.get() else ["policy_no"]
+        include = ["policy_no"] if self.policy_var.get() else None
         report = Report(mode=self.mode_var.get())
         done = failed = total_hits = 0
         for src in self.files:
             # 每個檔案用獨立引擎：姓名一致遮罩的登記表不應跨檔案累積
-            engine = MaskingEngine(mode=self.mode_var.get(), exclude=exclude)
+            engine = MaskingEngine(mode=self.mode_var.get(), include=include)
             fr = report.start_file(str(src))
             self._log_async("處理中：%s" % src.name)
             try:
