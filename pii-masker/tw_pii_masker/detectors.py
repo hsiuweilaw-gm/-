@@ -105,6 +105,12 @@ _SURNAMES_SINGLE = (
     "詹胡施沈余趙盧梁顏柯翁魏孫戴范宋方鄧杜傅侯曹薛丁卓阮馬董唐藍石蔣古紀姚連"
     "馮歐程湯田康姜汪白鄒尤巫鐘黎涂龔嚴韓袁金童陸夏柳凌邵溫倪凃俞聶原毛谷祝申"
     "甘秦史駱倩賀龎粘遊利安區辛易武韋雲樊岳虞夔隋商滕畢左權章繆花舒喬桂官塗全"
+    # 以下為實際名冊稽核陸續補入者（饒、崔、任等原缺，造成整筆姓名漏遮）
+    "饒莫崔任柴阿宗于孔杭項竇伍卞戚岑冉嵇衛尚符祁茅龐熊屈祖景束龍幸司韶郜"
+    "薊薄印宿懷蒲邰從鄂索咸籍藺屠蒙池陰鬱胥能蒼雙聞莘黨翟譚貢勞逄姬扶堵宰"
+    "酈雍卻璩桑濮牛壽通邊扈燕冀郟浦農別晏瞿閻充慕茹習宦艾魚容向慎戈庾終暨"
+    "居衡步都耿滿弘匡國寇廣祿殳沃蔚越隆師鞏厙晁勾敖融冷訾闞空毋沙乜養鞠須"
+    "豐巢關蒯相查后荊紅竺逯蓋益桓公麥翦邢竹汲昌卲鄞介亓么"
 )
 _SURNAMES_COMPOUND = ("歐陽", "司馬", "司徒", "諸葛", "上官", "張簡", "范姜", "東方", "周黃", "江謝")
 
@@ -132,11 +138,22 @@ _NAME_STOPWORDS = {
 _SURNAME_CLASS = "[" + _SURNAMES_SINGLE + "]"
 _SURNAME_ALT = "(?:" + "|".join(_SURNAMES_COMPOUND) + "|" + _SURNAME_CLASS + ")"
 
+# 名字不可吃進機構／職稱字樣：「楊惠萍保險經紀人」的姓名只到「楊惠萍」，
+# 否則會遮成「楊○○○險經紀人」這種既走樣又仍可辨識的亂碼
+_ORG_WORDS = (
+    "保險", "經紀", "代理", "公司", "銀行", "事務所", "股份", "有限", "企業",
+    "商行", "工作室", "分行", "分公司", "營業", "處所", "單位", "部門", "科技",
+    "先生", "小姐", "女士", "經理", "襄理", "協理", "總監", "主任", "專員",
+    "顧問", "業務", "襄", "的", "與", "之", "及", "和", "或",
+)
+_NAME_BODY = "(?:(?!" + "|".join(_ORG_WORDS) + ")[一-鿿]){1,3}"
+
 # 觸發姓名偵測的欄位標籤（含保險業常用欄位）
 _NAME_LABELS = (
     "姓名|收件人|申請人|當事人|聯絡人|負責人|受文者|立書人|立契約書人|要保人|"
     "被保險人|受益人|保戶|業務員|經辦人|承辦人|代理人|法定代理人|受款人|借款人|"
-    "保證人|客戶|病患|患者|員工|推介者|輔導者|繼承人|介紹人|招攬人|推薦人|主管"
+    "保證人|客戶|病患|患者|員工|推介者|輔導者|繼承人|介紹人|招攬人|推薦人|主管|"
+    "主被保人|副被保人|經手人|送件人|服務人員|招攬業務員|原業務員|新業務員"
 )
 
 # 姓名欄常見的「關係稱謂」等非姓名內容，不遮
@@ -197,6 +214,10 @@ class Detector:
     context_before: int = 20           # 往前看的字元數
     context_after: int = 8             # 往後看的字元數
     group: int = 0                     # 實際要遮罩的群組
+    # 是否採用外部提示（表格表頭／鄰格）判斷前後文。
+    # 鄰格文字對「整格即個資」的類型是好訊號，但對自由文字中的類型
+    # （如保單號碼）會造成鄰欄關鍵字外溢誤判，故可關閉
+    use_hint: bool = True
 
 
 def _has_context(text: str, start: int, end: int,
@@ -371,7 +392,20 @@ DETECTORS: List[Detector] = [
     Detector(
         name="name", label="姓名(欄位)", priority=50,
         pattern=re.compile(
-            "(?:" + _NAME_LABELS + r")\s*[:：]?\s*(" + _SURNAME_ALT + r"[一-鿿]{1,3})"
+            "(?:" + _NAME_LABELS + r")\s*[:：]?\s*(" + _SURNAME_ALT + _NAME_BODY + ")"
+        ),
+        validator=_validate_person_name,
+        group=1,
+    ),
+    Detector(
+        # 「姓名(證號)」是自由文字中最強的姓名訊號，不需任何標籤：
+        # 林宥慈(F220755862)、饒培杰(A121775567)、葉珍玲(HC-20)
+        # 前方加中文邊界，避免把機構名尾段誤判為姓名
+        # （「祐誠行政專帳(00000002)」的「行政專帳」前接「誠」，不觸發）
+        name="name_paren_id", label="姓名(附證號)", priority=49,
+        pattern=re.compile(
+            r"(?<![一-鿿])(" + _SURNAME_ALT + _NAME_BODY + r")"
+            r"\s*[（(][A-Za-z0-9\-]{4,20}[)）]"
         ),
         validator=_validate_person_name,
         group=1,
@@ -421,6 +455,18 @@ DETECTORS: List[Detector] = [
         context_before=12,
     ),
     Detector(
+        # 保單號碼／受理號碼：個資法上屬「得以間接方式識別」之個資
+        # （憑此可於保險公司系統查得特定個人）。須有「保單」等關鍵字才觸發，
+        # 且不採用鄰格提示，避免鄰欄關鍵字外溢誤判。
+        # 若業務上需保留，可用 --exclude-types policy_no 關閉
+        name="policy_no", label="保單號碼", priority=55,
+        pattern=re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9]{8,20}(?![A-Za-z0-9])"),
+        validator=lambda v: sum(c.isdigit() for c in v) >= 6,
+        context=("保單", "受理", "契約", "要保書", "保額", "投保"),
+        context_before=32, context_after=4,
+        use_hint=False,
+    ),
+    Detector(
         # 備註／注意事項等自由文字欄中的長數字（帳號、證號、日期序號…），
         # 一律保守遮罩
         name="note_digits", label="備註內號碼", priority=90,
@@ -466,7 +512,7 @@ def scan(text: str,
                 ctx = None
             if ctx is not None and not _has_context(
                     text, start, end, ctx, det.context_before, det.context_after,
-                    hint=context_hint):
+                    hint=context_hint if det.use_hint else ""):
                 continue
             matches.append(PIIMatch(det.name, det.label, start, end, value, det.priority))
     return _resolve_overlaps(matches)

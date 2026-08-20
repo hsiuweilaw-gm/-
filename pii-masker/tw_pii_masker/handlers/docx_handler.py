@@ -117,7 +117,13 @@ def _iter_table(table: Table, prefix: str) -> Iterator[Tuple[Paragraph, str, str
 def mask_docx(input_path: str, output_path: str,
               engine: MaskingEngine, report: Report,
               keep_metadata: bool = False) -> None:
+    engine.reset_learned()   # 一致性遮罩以單一文件為範圍
     doc = Document(input_path)
+
+    # 第一遍：學習整份文件中的姓名，供全文件一致遮罩
+    # （同一姓名往往只有部分出現處帶有「要保人」這類標籤）
+    for para, _location, hint in _iter_block_paragraphs(doc, "本文"):
+        engine.learn("".join(r.text for r in _para_runs(para)), hint)
 
     for para, location, hint in _iter_block_paragraphs(doc, "本文"):
         _mask_paragraph(para, engine, report, location, hint)

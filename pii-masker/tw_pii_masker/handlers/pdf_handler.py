@@ -31,10 +31,15 @@ def _is_ascii(s: str) -> bool:
 def mask_pdf(input_path: str, output_path: str,
              engine: MaskingEngine, report: Report,
              keep_metadata: bool = False) -> None:
+    engine.reset_learned()   # 一致性遮罩以單一文件為範圍
     doc = pymupdf.open(input_path)
     try:
         if doc.needs_pass:
             raise ValueError("此 PDF 已加密，請先解除密碼保護再處理")
+
+        # 第一遍：學習整份 PDF 中的姓名，供全文件一致遮罩
+        for page in doc:
+            engine.learn(page.get_text("text"))
 
         for pno, page in enumerate(doc, 1):
             location = "第 %d 頁" % pno
