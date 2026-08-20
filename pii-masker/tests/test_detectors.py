@@ -405,7 +405,13 @@ def test_policy_no_needs_keyword():
                    for h in scan("1150820DR0001", context_hint="保單"))
 
 
-def test_policy_no_can_be_disabled():
-    engine = MaskingEngine(exclude=["policy_no"])
+def test_policy_no_off_by_default():
+    """保單號碼預設不遮（業務需保留辨識），需明確開啟。"""
+    engine = MaskingEngine()
     out, _ = engine.mask_text("受理 保單 1150723LN00013 案件")
     assert "1150723LN00013" in out
+
+    engine = MaskingEngine(include=["policy_no"])
+    out, items = engine.mask_text("受理 保單 1150723LN00013 案件")
+    assert "1150723LN00013" not in out
+    assert any(i.type == "policy_no" for i in items)

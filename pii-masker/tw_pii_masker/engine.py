@@ -42,10 +42,18 @@ class MaskingEngine:
                  types: Optional[Sequence[str]] = None,
                  exclude: Optional[Sequence[str]] = None,
                  mode: str = "partial",
-                 all_dates: bool = False):
+                 all_dates: bool = False,
+                 include: Optional[Sequence[str]] = None):
+        """types 指定時只啟用該些類型；未指定則啟用預設類型集
+        （全部類型扣除 DEFAULT_OFF_TYPES）。include 可額外開啟預設關閉的類型。"""
         if mode not in masking.MODES:
             raise ValueError("未知的遮罩模式: %s（可用：%s）" % (mode, "/".join(masking.MODES)))
-        enabled = set(types) if types else set(detectors.ALL_TYPES)
+        if types:
+            enabled = set(types)
+        else:
+            enabled = set(detectors.ALL_TYPES) - set(detectors.DEFAULT_OFF_TYPES)
+        if include:
+            enabled |= set(include)
         if exclude:
             enabled -= set(exclude)
         unknown = enabled - set(detectors.ALL_TYPES)

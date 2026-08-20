@@ -201,3 +201,25 @@ def test_xlsx_learned_names_do_not_leak_across_files(tmp_path):
     out_b = load_workbook(tmp_path / "b_masked.xlsx").active
     values = " | ".join(str(c.value) for row in out_b.iter_rows() for c in row)
     assert "周洺禾路" in values          # a 檔學到的姓名不得帶到 b 檔
+
+
+def test_cli_mask_policy_no_flag(tmp_path):
+    from openpyxl import Workbook, load_workbook
+    src = tmp_path / "案件.xlsx"
+    wb = Workbook()
+    wb.active.append(["說明"])
+    wb.active.append(["受理 遠雄人壽 保單 1150727LN00008 保戶 王小明"])
+    wb.save(src)
+
+    assert run([str(src)]) == 0
+    values = " | ".join(str(c.value) for row in
+                        load_workbook(tmp_path / "案件_masked.xlsx").active.iter_rows()
+                        for c in row)
+    assert "1150727LN00008" in values     # 預設保留保單號碼
+    assert "王小明" not in values          # 姓名仍要遮
+
+    assert run([str(src), "--mask-policy-no", "--suffix", "_p"]) == 0
+    values = " | ".join(str(c.value) for row in
+                        load_workbook(tmp_path / "案件_p.xlsx").active.iter_rows()
+                        for c in row)
+    assert "1150727LN00008" not in values  # 明確開啟後才遮

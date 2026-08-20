@@ -479,6 +479,10 @@ DETECTORS: List[Detector] = [
 
 ALL_TYPES = {d.name: d.label for d in DETECTORS}
 
+# 預設「不」啟用的類型：屬個資法間接識別資料，但業務上常需保留辨識，
+# 由使用者自行決定是否開啟（CLI: --mask-policy-no／GUI: 勾選選項）
+DEFAULT_OFF_TYPES = ("policy_no",)
+
 
 # ---------------------------------------------------------------------------
 # 掃描
