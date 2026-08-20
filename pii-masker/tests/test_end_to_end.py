@@ -158,3 +158,46 @@ def test_xlsx_datetime_birthday_and_new_columns(tmp_path):
     assert "745號" not in values
     # 表頭不得被遮
     assert "姓名" in values and "壽險證照號碼" in values
+
+
+def test_xlsx_consistency_masking_in_free_text(tmp_path):
+    """自由文字欄：同一姓名在無標籤處也要遮（原本只遮有標籤的第一次）。"""
+    from openpyxl import Workbook, load_workbook
+    src = tmp_path / "查核.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["系統編號", "標題", "說明"])
+    ws.append([
+        6819,
+        "受理 遠雄人壽 保單 1150727LN00008 保戶 饒書寧 的 聯絡資料 相同",
+        "要保人 饒書寧(F228969519):地址 新北市汐止區秀山路147巷22號 "
+        "與 帳號 饒培杰(A121775567) 之 地址 相同",
+    ])
+    wb.save(src)
+    rc = run([str(src)])
+    assert rc == 0
+    out = load_workbook(tmp_path / "查核_masked.xlsx").active
+    values = " | ".join(str(c.value) for row in out.iter_rows() for c in row)
+    assert "饒書寧" not in values       # 兩欄、三處全遮
+    assert "饒培杰" not in values       # 「帳號」後無姓名標籤也要遮
+    assert "F228969519" not in values
+    assert "秀山路" not in values
+    assert "新北市汐止區" in values     # 行政區層級保留
+    assert "系統編號" in values         # 表頭不動
+
+
+def test_xlsx_learned_names_do_not_leak_across_files(tmp_path):
+    """一致性遮罩以單一文件為範圍，不可跨檔案累積。"""
+    from openpyxl import Workbook, load_workbook
+    a = tmp_path / "a.xlsx"
+    b = tmp_path / "b.xlsx"
+    for path, rows in ((a, ["要保人 周洺禾 申請"]), (b, ["營業處所 周洺禾路 施工"])):
+        wb = Workbook()
+        wb.active.append(["說明"])
+        wb.active.append(rows)
+        wb.save(path)
+    rc = run([str(a), str(b)])
+    assert rc == 0
+    out_b = load_workbook(tmp_path / "b_masked.xlsx").active
+    values = " | ".join(str(c.value) for row in out_b.iter_rows() for c in row)
+    assert "周洺禾路" in values          # a 檔學到的姓名不得帶到 b 檔

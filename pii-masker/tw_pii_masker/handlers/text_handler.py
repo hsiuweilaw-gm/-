@@ -15,6 +15,7 @@ _ENCODINGS = ("utf-8-sig", "cp950")
 def mask_text_file(input_path: str, output_path: str,
                    engine: MaskingEngine, report: Report,
                    keep_metadata: bool = False) -> None:
+    engine.reset_learned()   # 一致性遮罩以單一文件為範圍
     content = None
     used = None
     for enc in _ENCODINGS:
@@ -27,6 +28,9 @@ def mask_text_file(input_path: str, output_path: str,
             continue
     if content is None:
         raise ValueError("無法辨識檔案編碼（已嘗試 UTF-8 與 Big5/CP950）")
+
+    # 第一遍：學習整份文字中的姓名，供全文件一致遮罩
+    engine.learn(content)
 
     lines = content.splitlines(keepends=True)
     out_lines = []

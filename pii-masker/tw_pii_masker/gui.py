@@ -51,6 +51,14 @@ class App:
             ttk.Radiobutton(mode_frame, text=label, value=value,
                             variable=self.mode_var).pack(anchor="w")
 
+        opt_frame = ttk.LabelFrame(root, text="選項", padding=10)
+        opt_frame.pack(fill="x", padx=10, pady=(6, 0))
+        self.policy_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            opt_frame, variable=self.policy_var,
+            text="一併遮罩保單號碼／受理號碼（個資法屬間接識別資料；"
+                 "業務上需保留可取消勾選）").pack(anchor="w")
+
         run_frame = ttk.Frame(root, padding=10)
         run_frame.pack(fill="x")
         self.run_btn = ttk.Button(run_frame, text="開始遮罩", command=self.start)
@@ -95,10 +103,12 @@ class App:
         threading.Thread(target=self._work, daemon=True).start()
 
     def _work(self):
-        engine = MaskingEngine(mode=self.mode_var.get())
+        exclude = None if self.policy_var.get() else ["policy_no"]
         report = Report(mode=self.mode_var.get())
         done = failed = total_hits = 0
         for src in self.files:
+            # 每個檔案用獨立引擎：姓名一致遮罩的登記表不應跨檔案累積
+            engine = MaskingEngine(mode=self.mode_var.get(), exclude=exclude)
             fr = report.start_file(str(src))
             self._log_async("處理中：%s" % src.name)
             try:

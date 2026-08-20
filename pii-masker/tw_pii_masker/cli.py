@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-x", "--exclude-types", help="停用指定類型（逗號分隔）")
     p.add_argument("--all-dates", action="store_true",
                    help="遮罩所有完整日期（預設只遮出生日期相關）")
+    p.add_argument("--keep-policy-no", action="store_true",
+                   help="保留保單號碼／受理號碼不遮（預設遮罩，因屬間接識別個資）")
     p.add_argument("--dry-run", action="store_true", help="只偵測並顯示結果，不輸出檔案")
     p.add_argument("--report", metavar="FILE", help="另存 JSON 報告檔")
     p.add_argument("--show-original", action="store_true",
@@ -107,7 +109,9 @@ def run(argv: List[str] = None) -> int:
         return 1
 
     types = [t.strip() for t in args.types.split(",")] if args.types else None
-    exclude = [t.strip() for t in args.exclude_types.split(",")] if args.exclude_types else None
+    exclude = [t.strip() for t in args.exclude_types.split(",")] if args.exclude_types else []
+    if args.keep_policy_no:
+        exclude = list(exclude) + ["policy_no"]
     try:
         engine = MaskingEngine(types=types, exclude=exclude,
                                mode=args.mode, all_dates=args.all_dates)

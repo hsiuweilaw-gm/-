@@ -31,8 +31,25 @@ _PHONE_HINT_RE = re.compile(r"電話|手機|行動|傳真|TEL|Tel|tel|Phone|phon
 def mask_xlsx(input_path: str, output_path: str,
               engine: MaskingEngine, report: Report,
               keep_metadata: bool = False) -> None:
+    engine.reset_learned()   # 一致性遮罩以單一文件為範圍
     keep_vba = str(input_path).lower().endswith(".xlsm")
     wb = load_workbook(input_path, keep_vba=keep_vba)
+
+    # 第一遍：學習整份活頁簿中的姓名，供全文件一致遮罩
+    # （自由文字中同一姓名往往只有部分出現處帶標籤）
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if not isinstance(v, str) or not v or v.startswith("="):
+                    continue
+                hints = []
+                if cell.row > 1:
+                    hints.append(ws.cell(row=1, column=cell.column).value)
+                if cell.column > 1:
+                    hints.append(ws.cell(row=cell.row, column=cell.column - 1).value)
+                engine.learn(v, "\n".join(
+                    h for h in hints if isinstance(h, str) and h))
 
     for ws in wb.worksheets:
         # 工作表名稱也可能含姓名等個資

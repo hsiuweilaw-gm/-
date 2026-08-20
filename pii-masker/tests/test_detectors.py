@@ -330,3 +330,82 @@ def test_note_digits():
 def test_bank_account_nine_digits():
     hits = scan("銀行帳號：765265571")
     assert any(h.type in ("bank_account", "landline") for h in hits)
+
+
+# ---------------------------------------------------------------------------
+# v1.3.0：查核案件檔案稽核發現的漏抓修正（自由文字姓名一致性）
+# ---------------------------------------------------------------------------
+
+def test_surname_list_covers_missing_ones():
+    # 饒等姓氏原不在庫內，造成整筆姓名漏遮
+    for s in "饒崔任莫柴":
+        assert s in detectors._SURNAMES_SINGLE, s
+
+
+def test_name_paren_id_without_label():
+    # 「姓名(證號)」不需任何標籤即可辨識
+    hits = scan("與 帳號 饒培杰(A121775567) 之 地址 相同")
+    assert any(h.type == "name_paren_id" and h.text == "饒培杰" for h in hits)
+    hits = scan("經手人 葉珍玲(HC-20) 不具資格")
+    assert any(h.text == "葉珍玲" for h in hits)
+
+
+def test_name_paren_id_ignores_org_account():
+    # 機構帳戶名（前面接中文）不可被當成姓名
+    hits = scan("與 帳號 祐誠行政專帳(00000002) 之 地址 相同")
+    assert all(h.type != "name_paren_id" for h in hits)
+
+
+def test_name_not_swallowing_org_words():
+    # 「楊惠萍保險經紀人」的姓名只到「楊惠萍」，不可遮成「楊○○○險經紀人」
+    hits = scan("要保人 楊惠萍保險經紀人(88279134)")
+    names = [h.text for h in hits if h.type.startswith("name")]
+    assert "楊惠萍" in names
+    assert all("保" not in n for n in names)
+    out, _ = MaskingEngine().mask_text("要保人 楊惠萍保險經紀人")
+    assert out == "要保人 楊○○保險經紀人"
+
+
+def test_consistency_masking_same_cell():
+    """同一段文字中同一姓名的每一次出現都要遮（原本只遮第一次）。"""
+    text = ("要保人 林宥慈(F220755862):手機 0920094377 與 帳號 林宥慈(F220755862) 相同"
+            "<br>主被保人 林宥慈(F220755862)")
+    engine = MaskingEngine()
+    engine.learn(text)
+    out, _ = engine.mask_text(text)
+    assert "林宥慈" not in out
+    assert out.count("林○○") == 3
+
+
+def test_consistency_masking_across_texts():
+    """A 段落確認的姓名，B 段落即使無標籤也要遮。"""
+    engine = MaskingEngine()
+    engine.learn("要保人 周洺禾 申請")
+    out, items = engine.mask_text("帳號 周洺禾 之 地址 相同")
+    assert "周洺禾" not in out
+    assert items and items[0].type == "name_known"
+
+
+def test_reset_learned_scopes_to_one_document():
+    engine = MaskingEngine()
+    engine.learn("要保人 周洺禾 申請")
+    assert engine.known_names
+    engine.reset_learned()
+    assert not engine.known_names
+    out, _ = engine.mask_text("帳號 周洺禾")
+    assert "周洺禾" in out          # 已重置，不再跨文件遮罩
+
+
+def test_policy_no_needs_keyword():
+    hits = scan("受理 全球人壽 保單 1150723LN00013 的案件")
+    assert any(h.type == "policy_no" and h.text == "1150723LN00013" for h in hits)
+    # 無關鍵字不觸發；鄰格提示也不得外溢觸發
+    assert not any(h.type == "policy_no" for h in scan("查核序號 1150820DR0001"))
+    assert not any(h.type == "policy_no"
+                   for h in scan("1150820DR0001", context_hint="保單"))
+
+
+def test_policy_no_can_be_disabled():
+    engine = MaskingEngine(exclude=["policy_no"])
+    out, _ = engine.mask_text("受理 保單 1150723LN00013 案件")
+    assert "1150723LN00013" in out
