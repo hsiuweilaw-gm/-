@@ -14,6 +14,13 @@
   2. mask_text()：除了本文偵測，另把所有已登記姓名的出現處一併遮罩
 
 各檔案處理器負責在遮罩前先跑一遍 learn()。
+
+內部人員豁免
+------------
+姓名是否遮罩，以「該處的標籤」逐處判斷：客戶端標籤（保戶、要保人、
+被保險人…）遮罩；內部人員標籤（帳號、業務員、經手人…）保留。
+同一人可同時具備兩種身分——在「要保人」處遮、在「帳號」處保留。
+無標籤處則沿用一致性遮罩：只要該姓名曾以客戶身分出現過就遮。
 """
 from __future__ import annotations
 
@@ -84,12 +91,14 @@ class MaskingEngine:
                 continue
             if not self.mask_agent_names and detectors.is_agent_context(
                     text, m.start, context_hint):
-                # 業務員／帳號姓名：登記為豁免，全文件都不遮
+                # 此處身分為內部人員（業務員／帳號／經手人…）
                 self._agent_names.add(m.text)
-                self._known_names.discard(m.text)
-            elif m.text not in self._agent_names:
+            elif (self.mask_agent_names
+                    or detectors.is_customer_context(text, m.start, context_hint)):
+                # 此處身分明確為客戶：登記起來，供無標籤處的一致性遮罩。
+                # 無標籤處本身不算證據，不列入任一方
                 self._known_names.add(m.text)
-            self._known_re = None
+                self._known_re = None
 
     def learn_all(self, texts: Iterable[Tuple[str, str]]) -> None:
         """批次學習，texts 為 (文字, 前後文提示) 的序列。"""
@@ -105,7 +114,8 @@ class MaskingEngine:
 
     @property
     def agent_names(self) -> Set[str]:
-        """本文件中判定為業務員／帳號、因而不遮罩的姓名。"""
+        """本文件中曾以內部人員（業務員／帳號／經手人…）身分出現的姓名。
+        僅供報告參考——實際是否遮罩以每一處的標籤逐處判斷。"""
         return set(self._agent_names)
 
     @property
@@ -113,14 +123,11 @@ class MaskingEngine:
         return set(self._known_names)
 
     def _known_pattern(self) -> Optional["re.Pattern[str]"]:
-        if not self._known_names or self._known_names <= self._agent_names:
+        if not self._known_names:
             return None
         if self._known_re is None:
             # 長字串優先，避免「林宥」先於「林宥慈」命中
-            names = self._known_names - self._agent_names
-            if not names:
-                return None
-            alts = sorted(names, key=len, reverse=True)
+            alts = sorted(self._known_names, key=len, reverse=True)
             self._known_re = re.compile("|".join(re.escape(n) for n in alts))
         return self._known_re
 
@@ -138,12 +145,9 @@ class MaskingEngine:
         """
         matches = self._detect(text, context_hint)
         if not self.mask_agent_names:
-            matches = [
-                m for m in matches
-                if not m.type.startswith("name")
-                or (m.text not in self._agent_names
-                    and not detectors.is_agent_context(text, m.start, context_hint))
-            ]
+            matches = [m for m in matches
+                       if not m.type.startswith("name")
+                       or self._should_mask_name(m.text, text, m.start, context_hint)]
         pattern = self._known_pattern()
         if pattern is None:
             return matches
@@ -152,6 +156,9 @@ class MaskingEngine:
             start, end = m.span()
             if any(start < k.end and k.start < end for k in matches):
                 continue
+            if not self.mask_agent_names and not self._should_mask_name(
+                    m.group(0), text, start, context_hint):
+                continue   # 該處身分為內部人員，不補遮
             # 標籤保持簡潔：label 模式會把它直接寫進文件
             extra.append(PIIMatch("name_known", "姓名", start, end, m.group(0), 48))
         if not extra:
@@ -159,6 +166,22 @@ class MaskingEngine:
         merged = matches + extra
         merged.sort(key=lambda x: x.start)
         return merged
+
+    def _should_mask_name(self, name: str, text: str, start: int,
+                          context_hint: str) -> bool:
+        """判斷某處姓名是否該遮罩。
+
+        1. 該處標籤是內部人員（帳號／業務員／經手人…）→ 不遮
+        2. 該處標籤是客戶端（保戶／要保人／被保險人…）→ 遮
+        3. 該處無標籤 → 看這個姓名在本文件是否曾以客戶身分出現：
+           只當過內部人員的（如 J 欄「經手人 葉珍玲」、K 欄無標籤的葉珍玲）
+           不遮；曾是客戶的則遮
+        """
+        if detectors.is_agent_context(text, start, context_hint):
+            return False
+        if detectors.is_customer_context(text, start, context_hint):
+            return True
+        return not (name in self._agent_names and name not in self._known_names)
 
     def replacement(self, match: PIIMatch) -> str:
         return masking.make_replacement(match, self.mode)

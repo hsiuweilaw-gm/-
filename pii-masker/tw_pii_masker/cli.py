@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mask-policy-no", action="store_true",
                    help="一併遮罩保單號碼／受理號碼（預設不遮，保留供業務辨識）")
     p.add_argument("--mask-agent-names", action="store_true",
-                   help="一併遮罩業務員／帳號的姓名（預設不遮，保留供查核辨識）")
+                   help="一併遮罩內部人員（業務員／帳號／經手人…）的姓名（預設不遮）")
     p.add_argument("--dry-run", action="store_true", help="只偵測並顯示結果，不輸出檔案")
     p.add_argument("--report", metavar="FILE", help="另存 JSON 報告檔")
     p.add_argument("--show-original", action="store_true",
