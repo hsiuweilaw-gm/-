@@ -61,8 +61,8 @@ class App:
         self.agent_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             opt_frame, variable=self.agent_var,
-            text="一併遮罩業務員／帳號的姓名（預設不遮，保留供查核辨識；"
-                 "客戶端姓名一律遮罩）").pack(anchor="w")
+            text="一併遮罩內部人員（業務員／帳號／經手人…）的姓名"
+                 "（預設不遮；客戶端姓名一律遮罩）").pack(anchor="w")
 
         run_frame = ttk.Frame(root, padding=10)
         run_frame.pack(fill="x")

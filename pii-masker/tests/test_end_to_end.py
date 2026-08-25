@@ -255,3 +255,30 @@ def test_xlsx_agent_names_kept_customer_names_masked(tmp_path):
                         load_workbook(tmp_path / "查核案件_a.xlsx").active.iter_rows()
                         for c in row)
     assert "劉湘妘" not in values
+
+
+def test_xlsx_label_decides_masking_per_occurrence(tmp_path):
+    """同一人兼具兩種身分時，依每一處的標籤決定遮或不遮。"""
+    from openpyxl import Workbook, load_workbook
+    src = tmp_path / "查核.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["系統編號", "標題", "說明"])
+    ws.append([
+        6826,
+        "(業務侵佔) 受理 安聯人壽 保戶 林宥慈 的 聯絡資料 與 業務員/營業處所 相同",
+        "要保人 林宥慈(F220755862):手機 0920094377 "
+        "與 帳號 林宥慈(F220755862) 之 手機 相同",
+    ])
+    ws.append([6827, "經手人 葉珍玲(HC-20) 不具資格",
+               "葉珍玲(HC-20)(hcv2223195) 的 壽險 與 公平"])
+    wb.save(src)
+    assert run([str(src)]) == 0
+    out = load_workbook(tmp_path / "查核_masked.xlsx").active
+    title, note = out["B2"].value, out["C2"].value
+    assert "林○○" in title and "林宥慈" not in title    # 保戶 → 遮
+    assert note.count("林○○") == 1                      # 要保人 → 遮
+    assert note.count("林宥慈") == 1                     # 帳號 → 保留
+    # 經手人：兩欄都保留（含無標籤的那一處）
+    assert "葉珍玲" in out["B3"].value and "葉珍玲" in out["C3"].value
+    assert "hcv2223195" not in out["C3"].value   # 但帳號字串仍遮

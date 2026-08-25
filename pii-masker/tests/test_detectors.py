@@ -381,7 +381,7 @@ def test_consistency_masking_across_texts():
     """A 段落確認的姓名，B 段落即使無標籤也要遮。"""
     engine = MaskingEngine()
     engine.learn("要保人 周洺禾 申請")
-    out, items = engine.mask_text("帳號 周洺禾 之 地址 相同")
+    out, items = engine.mask_text("本案 周洺禾 之 地址 相同")
     assert "周洺禾" not in out
     assert items and items[0].type == "name_known"
 
@@ -441,13 +441,54 @@ def test_agent_label_variants():
         assert "王大同" in engine.mask_text(text)[0], label
 
 
-def test_agent_exemption_applies_document_wide():
-    """在一處被判定為業務員的姓名，其他無標籤處也不遮。"""
+def test_agent_only_name_not_masked_anywhere():
+    """只以內部人員身分出現過的姓名，無標籤處也不遮。"""
     engine = MaskingEngine()
     engine.learn("帳號 劉湘妘(N224463647) 之 地址")
     out, _ = engine.mask_text("本案由 劉湘妘 處理")
     assert "劉湘妘" in out
     assert "劉湘妘" in engine.agent_names
+
+
+def test_same_person_both_roles_masked_per_occurrence():
+    """同一人兼具兩種身分時，依「該處標籤」逐處判斷：
+    要保人處遮、帳號處保留。"""
+    engine = MaskingEngine()
+    text = ("要保人 林宥慈(F220755862):手機 0920094377 "
+            "與 帳號 林宥慈(F220755862) 之 手機 相同")
+    engine.learn(text)
+    out, _ = engine.mask_text(text)
+    assert out.count("林○○") == 1      # 要保人處遮罩
+    assert out.count("林宥慈") == 1     # 帳號處保留
+    assert out.index("林○○") < out.index("林宥慈")
+
+
+def test_handler_labels_not_masked():
+    """經手人／處理者／建立者等內部人員標籤，其後姓名不遮。"""
+    for label in ("經手人", "經辦人", "承辦人", "處理者", "送件人", "建立者"):
+        engine = MaskingEngine()
+        text = "%s 葉珍玲(HC-20) 受理" % label
+        engine.learn(text)
+        assert "葉珍玲" in engine.mask_text(text)[0], label
+
+
+def test_customer_labels_masked():
+    """保戶／要保人／被保險人等客戶標籤，其後姓名一律遮。"""
+    for label in ("保戶", "要保人", "被保險人", "主被保人", "副被保人",
+                  "受益人", "客戶", "申請人"):
+        engine = MaskingEngine()
+        text = "%s 陳美玲 的資料" % label
+        engine.learn(text)
+        assert "陳美玲" not in engine.mask_text(text)[0], label
+
+
+def test_mask_agent_names_flag_covers_agent_labels():
+    """加旗標後，內部人員標籤後的姓名也要遮。"""
+    for label in ("業務員", "帳號", "經手人", "處理者"):
+        engine = MaskingEngine(mask_agent_names=True)
+        text = "%s 葉珍玲(HC-20) 受理" % label
+        engine.learn(text)
+        assert "葉珍玲" not in engine.mask_text(text)[0], label
 
 
 def test_agent_label_after_name_does_not_exempt():
@@ -488,3 +529,24 @@ def test_agent_hint_only_from_short_labels():
     # 短欄位標題仍有效
     assert detectors.is_agent_context("王大同", 0, "業務員姓名")
     assert not detectors.is_agent_context("王大同", 0, long_neighbour)
+
+
+def test_unlabelled_occurrence_of_agent_only_name_kept():
+    """無標籤處：該姓名若只以內部人員身分出現過，不遮。
+
+    實際查核檔的情境——J 欄「經手人 葉珍玲(HC-20)」，
+    K 欄同一人再次出現但前方無標籤。
+    """
+    engine = MaskingEngine()
+    engine.learn("(銷售資格) 受理 元大人壽 經手人 葉珍玲(HC-20) 不具資格")
+    out, _ = engine.mask_text("葉珍玲(HC-20)(hcv2223195) 的 壽險 與 公平")
+    assert "葉珍玲" in out
+
+
+def test_unlabelled_occurrence_of_customer_name_masked():
+    """反之，曾以客戶身分出現過的姓名，無標籤處仍要遮。"""
+    engine = MaskingEngine()
+    engine.learn("要保人 周洺禾 申請")
+    engine.learn("帳號 周洺禾 之 地址")     # 同時也有內部人員身分
+    out, _ = engine.mask_text("本案 周洺禾 之 資料")
+    assert "周洺禾" not in out
