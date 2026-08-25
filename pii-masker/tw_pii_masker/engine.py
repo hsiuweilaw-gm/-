@@ -43,7 +43,8 @@ class MaskingEngine:
                  exclude: Optional[Sequence[str]] = None,
                  mode: str = "partial",
                  all_dates: bool = False,
-                 include: Optional[Sequence[str]] = None):
+                 include: Optional[Sequence[str]] = None,
+                 mask_agent_names: bool = False):
         """types 指定時只啟用該些類型；未指定則啟用預設類型集
         （全部類型扣除 DEFAULT_OFF_TYPES）。include 可額外開啟預設關閉的類型。"""
         if mode not in masking.MODES:
@@ -64,8 +65,12 @@ class MaskingEngine:
         self.enabled = enabled
         self.mode = mode
         self.all_dates = all_dates
+        # False（預設）：業務員／帳號情境的姓名不遮罩，視為內部人員而非客戶個資
+        self.mask_agent_names = mask_agent_names
         self._known_names: Set[str] = set()
         self._known_re: Optional["re.Pattern[str]"] = None
+        # 於文件中任一處被判定為業務員／帳號的姓名，全文件均不遮罩
+        self._agent_names: Set[str] = set()
 
     # ------------------------------------------------------------------
     # 第一階段：學習本文件中的姓名
@@ -75,9 +80,16 @@ class MaskingEngine:
         if not text:
             return
         for m in self._detect(text, context_hint):
-            if m.type in _LEARNABLE_TYPES and len(m.text) >= 2:
+            if m.type not in _LEARNABLE_TYPES or len(m.text) < 2:
+                continue
+            if not self.mask_agent_names and detectors.is_agent_context(
+                    text, m.start, context_hint):
+                # 業務員／帳號姓名：登記為豁免，全文件都不遮
+                self._agent_names.add(m.text)
+                self._known_names.discard(m.text)
+            elif m.text not in self._agent_names:
                 self._known_names.add(m.text)
-                self._known_re = None
+            self._known_re = None
 
     def learn_all(self, texts: Iterable[Tuple[str, str]]) -> None:
         """批次學習，texts 為 (文字, 前後文提示) 的序列。"""
@@ -88,18 +100,27 @@ class MaskingEngine:
         """清空已登記姓名。一致性遮罩以「單一文件」為範圍，
         各檔案處理器於開始處理前呼叫，避免跨檔案累積。"""
         self._known_names.clear()
+        self._agent_names.clear()
         self._known_re = None
+
+    @property
+    def agent_names(self) -> Set[str]:
+        """本文件中判定為業務員／帳號、因而不遮罩的姓名。"""
+        return set(self._agent_names)
 
     @property
     def known_names(self) -> Set[str]:
         return set(self._known_names)
 
     def _known_pattern(self) -> Optional["re.Pattern[str]"]:
-        if not self._known_names:
+        if not self._known_names or self._known_names <= self._agent_names:
             return None
         if self._known_re is None:
             # 長字串優先，避免「林宥」先於「林宥慈」命中
-            alts = sorted(self._known_names, key=len, reverse=True)
+            names = self._known_names - self._agent_names
+            if not names:
+                return None
+            alts = sorted(names, key=len, reverse=True)
             self._known_re = re.compile("|".join(re.escape(n) for n in alts))
         return self._known_re
 
@@ -111,8 +132,18 @@ class MaskingEngine:
                               all_dates=self.all_dates, context_hint=context_hint)
 
     def scan(self, text: str, context_hint: str = "") -> List[PIIMatch]:
-        """偵測個資，並補上本文件已登記姓名的其餘出現處。"""
+        """偵測個資，並補上本文件已登記姓名的其餘出現處。
+
+        業務員／帳號情境的姓名（以及已登記為業務員的姓名）不納入遮罩。
+        """
         matches = self._detect(text, context_hint)
+        if not self.mask_agent_names:
+            matches = [
+                m for m in matches
+                if not m.type.startswith("name")
+                or (m.text not in self._agent_names
+                    and not detectors.is_agent_context(text, m.start, context_hint))
+            ]
         pattern = self._known_pattern()
         if pattern is None:
             return matches

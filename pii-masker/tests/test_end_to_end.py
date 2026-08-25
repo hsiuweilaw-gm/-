@@ -178,8 +178,8 @@ def test_xlsx_consistency_masking_in_free_text(tmp_path):
     assert rc == 0
     out = load_workbook(tmp_path / "查核_masked.xlsx").active
     values = " | ".join(str(c.value) for row in out.iter_rows() for c in row)
-    assert "饒書寧" not in values       # 兩欄、三處全遮
-    assert "饒培杰" not in values       # 「帳號」後無姓名標籤也要遮
+    assert "饒書寧" not in values       # 保戶姓名：兩欄多處全遮
+    assert "饒培杰" in values           # 「帳號」後的業務員姓名保留
     assert "F228969519" not in values
     assert "秀山路" not in values
     assert "新北市汐止區" in values     # 行政區層級保留
@@ -223,3 +223,35 @@ def test_cli_mask_policy_no_flag(tmp_path):
                         load_workbook(tmp_path / "案件_p.xlsx").active.iter_rows()
                         for c in row)
     assert "1150727LN00008" not in values  # 明確開啟後才遮
+
+
+def test_xlsx_agent_names_kept_customer_names_masked(tmp_path):
+    """業務員／帳號姓名保留、客戶姓名遮罩；鄰欄提到業務員不得放行客戶姓名。"""
+    from openpyxl import Workbook, load_workbook
+    src = tmp_path / "查核案件.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["系統編號", "標題", "說明"])
+    ws.append([
+        6820,
+        "(業務侵佔) 受理 全球人壽 保戶 周洺禾 的 聯絡資料 與 業務員/營業處所 相同",
+        "要保人 周洺禾(P123732535):地址 彰化縣線西鄉中華路121號 "
+        "與 帳號 劉湘妘(N224463647) 之 地址 相同",
+    ])
+    wb.save(src)
+    assert run([str(src)]) == 0
+    values = " | ".join(str(c.value) for row in
+                        load_workbook(tmp_path / "查核案件_masked.xlsx").active.iter_rows()
+                        for c in row)
+    assert "周洺禾" not in values and "周○○" in values   # 保戶：兩欄都遮
+    assert "劉湘妘" in values                             # 業務員：保留
+    assert "P123732535" not in values                    # 身分證仍遮
+    assert "N224463647" not in values                    # 業務員身分證也遮
+    assert "中華路" not in values                        # 地址仍遮
+
+    # 加旗標可回復為一律遮罩
+    assert run([str(src), "--mask-agent-names", "--suffix", "_a"]) == 0
+    values = " | ".join(str(c.value) for row in
+                        load_workbook(tmp_path / "查核案件_a.xlsx").active.iter_rows()
+                        for c in row)
+    assert "劉湘妘" not in values
