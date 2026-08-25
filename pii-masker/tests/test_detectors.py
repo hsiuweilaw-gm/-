@@ -368,8 +368,8 @@ def test_name_not_swallowing_org_words():
 
 def test_consistency_masking_same_cell():
     """同一段文字中同一姓名的每一次出現都要遮（原本只遮第一次）。"""
-    text = ("要保人 林宥慈(F220755862):手機 0920094377 與 帳號 林宥慈(F220755862) 相同"
-            "<br>主被保人 林宥慈(F220755862)")
+    text = ("要保人 林宥慈(F220755862):手機 0920094377；"
+            "聯絡時請找 林宥慈<br>主被保人 林宥慈")
     engine = MaskingEngine()
     engine.learn(text)
     out, _ = engine.mask_text(text)
@@ -415,3 +415,76 @@ def test_policy_no_off_by_default():
     out, items = engine.mask_text("受理 保單 1150723LN00013 案件")
     assert "1150723LN00013" not in out
     assert any(i.type == "policy_no" for i in items)
+
+
+# ---------------------------------------------------------------------------
+# v1.4.0：業務員／帳號姓名不遮罩
+# ---------------------------------------------------------------------------
+
+def test_agent_name_not_masked():
+    """「帳號」「業務員」後的姓名屬內部人員，預設不遮。"""
+    engine = MaskingEngine()
+    text = "要保人 周洺禾(P123732535) 與 帳號 劉湘妘(N224463647) 之 地址 相同"
+    engine.learn(text)
+    out, _ = engine.mask_text(text)
+    assert "劉湘妘" in out          # 帳號（業務員）姓名保留
+    assert "周洺禾" not in out      # 客戶姓名照遮
+    assert "P123732535" not in out  # 身分證仍遮
+    assert "N224463647" not in out
+
+
+def test_agent_label_variants():
+    for label in ("業務員", "帳號", "招攬業務員", "服務人員"):
+        engine = MaskingEngine()
+        text = "%s 王大同 受理" % label
+        engine.learn(text)
+        assert "王大同" in engine.mask_text(text)[0], label
+
+
+def test_agent_exemption_applies_document_wide():
+    """在一處被判定為業務員的姓名，其他無標籤處也不遮。"""
+    engine = MaskingEngine()
+    engine.learn("帳號 劉湘妘(N224463647) 之 地址")
+    out, _ = engine.mask_text("本案由 劉湘妘 處理")
+    assert "劉湘妘" in out
+    assert "劉湘妘" in engine.agent_names
+
+
+def test_agent_label_after_name_does_not_exempt():
+    """業務員一詞出現在姓名「之後」，不代表該姓名是業務員。"""
+    engine = MaskingEngine()
+    text = "保戶 陳美玲 的 聯絡資料 與 業務員/營業處所 相同"
+    engine.learn(text)
+    out, _ = engine.mask_text(text)
+    assert "陳美玲" not in out
+
+
+def test_agent_name_column_hint_exempt():
+    """表格欄位標題為業務員／帳號時，整格姓名也不遮。"""
+    engine = MaskingEngine()
+    engine.learn("王大同", "業務員姓名")
+    out, _ = engine.mask_text("王大同", "業務員姓名")
+    assert out == "王大同"
+
+
+def test_mask_agent_names_flag_restores_masking():
+    engine = MaskingEngine(mask_agent_names=True)
+    text = "帳號 劉湘妘(N224463647) 之 地址"
+    engine.learn(text)
+    out, _ = engine.mask_text(text)
+    assert "劉湘妘" not in out
+
+
+def test_agent_hint_only_from_short_labels():
+    """鄰格長文中偶然出現的「業務員」不得放行整格客戶姓名。"""
+    long_neighbour = ("(業務侵佔) 2026-07-23 受理 全球人壽 保單 1150723LN00013 "
+                      "保戶 周洺禾 的 聯絡資料 與 業務員/營業處所 相同")
+    engine = MaskingEngine()
+    text = "要保人 周洺禾(P123732535) 與 帳號 劉湘妘(N224463647) 之 地址 相同"
+    engine.learn(text, long_neighbour)
+    out, _ = engine.mask_text(text, long_neighbour)
+    assert "周洺禾" not in out      # 保戶仍要遮
+    assert "劉湘妘" in out          # 帳號（業務員）保留
+    # 短欄位標題仍有效
+    assert detectors.is_agent_context("王大同", 0, "業務員姓名")
+    assert not detectors.is_agent_context("王大同", 0, long_neighbour)

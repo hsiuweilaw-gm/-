@@ -58,6 +58,11 @@ class App:
             opt_frame, variable=self.policy_var,
             text="一併遮罩保單號碼／受理號碼（預設不遮，保留供業務辨識）"
             ).pack(anchor="w")
+        self.agent_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            opt_frame, variable=self.agent_var,
+            text="一併遮罩業務員／帳號的姓名（預設不遮，保留供查核辨識；"
+                 "客戶端姓名一律遮罩）").pack(anchor="w")
 
         run_frame = ttk.Frame(root, padding=10)
         run_frame.pack(fill="x")
@@ -108,7 +113,8 @@ class App:
         done = failed = total_hits = 0
         for src in self.files:
             # 每個檔案用獨立引擎：姓名一致遮罩的登記表不應跨檔案累積
-            engine = MaskingEngine(mode=self.mode_var.get(), include=include)
+            engine = MaskingEngine(mode=self.mode_var.get(), include=include,
+                                   mask_agent_names=self.agent_var.get())
             fr = report.start_file(str(src))
             self._log_async("處理中：%s" % src.name)
             try:

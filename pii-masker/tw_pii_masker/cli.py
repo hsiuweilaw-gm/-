@@ -60,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="遮罩所有完整日期（預設只遮出生日期相關）")
     p.add_argument("--mask-policy-no", action="store_true",
                    help="一併遮罩保單號碼／受理號碼（預設不遮，保留供業務辨識）")
+    p.add_argument("--mask-agent-names", action="store_true",
+                   help="一併遮罩業務員／帳號的姓名（預設不遮，保留供查核辨識）")
     p.add_argument("--dry-run", action="store_true", help="只偵測並顯示結果，不輸出檔案")
     p.add_argument("--report", metavar="FILE", help="另存 JSON 報告檔")
     p.add_argument("--show-original", action="store_true",
@@ -113,7 +115,8 @@ def run(argv: List[str] = None) -> int:
     include = ["policy_no"] if args.mask_policy_no else None
     try:
         engine = MaskingEngine(types=types, exclude=exclude, include=include,
-                               mode=args.mode, all_dates=args.all_dates)
+                               mode=args.mode, all_dates=args.all_dates,
+                               mask_agent_names=args.mask_agent_names)
     except ValueError as exc:
         print("參數錯誤：%s" % exc, file=sys.stderr)
         return 2
