@@ -93,6 +93,7 @@ _PARTIAL_MASKERS: Dict[str, Callable[[str], str]] = {
     "name": _mask_name,                                   # 王○○
     "name_honorific": _mask_name,
     "name_bare": _mask_name,
+    "name_customer": _mask_name,
     "name_paren_id": _mask_name,
     "name_known": _mask_name,
     "id_bare": lambda t: mask_digits_keep(t, 2, 2),       # B1******33
