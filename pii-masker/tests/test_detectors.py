@@ -98,7 +98,7 @@ def test_scan_address():
 
 def test_scan_name_label():
     hits = scan("被保險人：王小明 身分證字號如附件")
-    assert any(h.type == "name" and h.text == "王小明" for h in hits)
+    assert any(h.type.startswith("name") and h.text == "王小明" for h in hits)
 
 
 def test_scan_name_stopword_not_matched():
@@ -450,17 +450,45 @@ def test_agent_only_name_not_masked_anywhere():
     assert "劉湘妘" in engine.agent_names
 
 
-def test_same_person_both_roles_masked_per_occurrence():
-    """同一人兼具兩種身分時，依「該處標籤」逐處判斷：
-    要保人處遮、帳號處保留。"""
+def test_customer_identity_wins_over_agent_context():
+    """同一人兼具兩種身分時，客戶身分優先：連「帳號」處也要遮。
+
+    兩處常共用同一組身分證尾碼，若保留帳號處的姓名，
+    等於把要保人處的遮罩解開。
+    """
     engine = MaskingEngine()
     text = ("要保人 林宥慈(F220755862):手機 0920094377 "
             "與 帳號 林宥慈(F220755862) 之 手機 相同")
     engine.learn(text)
     out, _ = engine.mask_text(text)
-    assert out.count("林○○") == 1      # 要保人處遮罩
-    assert out.count("林宥慈") == 1     # 帳號處保留
-    assert out.index("林○○") < out.index("林宥慈")
+    assert "林宥慈" not in out
+    assert out.count("林○○") == 2
+
+
+def test_pure_agent_name_still_kept_alongside_customer():
+    """純內部人員（從未以客戶身分出現）仍然保留。"""
+    engine = MaskingEngine()
+    text = "要保人 饒書寧(F228969519) 與 帳號 饒培杰(A121775567) 之 地址 相同"
+    engine.learn(text)
+    out, _ = engine.mask_text(text)
+    assert "饒書寧" not in out      # 要保人 → 遮
+    assert "饒培杰" in out          # 只當過帳號 → 保留
+
+
+def test_customer_label_without_surname_in_list():
+    """客戶標籤後的姓名不需姓氏在字庫內（如「陽」原本未收錄）。"""
+    engine = MaskingEngine()
+    for text in ("保戶 陽曼蘭 的 聯絡資料 相同", "主被保人 陽曼蘭(H291234567)"):
+        engine2 = MaskingEngine()
+        engine2.learn(text)
+        assert "陽曼蘭" not in engine2.mask_text(text)[0], text
+
+
+def test_customer_label_needs_separator():
+    """標籤與姓名間須有分隔，否則「客戶身分證字號」會被誤讀。"""
+    assert all(h.type != "name_customer"
+               for h in scan("客戶身分證字號：A123456789"))
+    assert all(h.type != "name_customer" for h in scan("客戶名單"))
 
 
 def test_handler_labels_not_masked():

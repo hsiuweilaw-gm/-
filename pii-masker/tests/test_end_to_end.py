@@ -258,7 +258,7 @@ def test_xlsx_agent_names_kept_customer_names_masked(tmp_path):
 
 
 def test_xlsx_label_decides_masking_per_occurrence(tmp_path):
-    """同一人兼具兩種身分時，依每一處的標籤決定遮或不遮。"""
+    """客戶身分全文件優先；純內部人員（經手人）則各處保留。"""
     from openpyxl import Workbook, load_workbook
     src = tmp_path / "查核.xlsx"
     wb = Workbook()
@@ -277,8 +277,50 @@ def test_xlsx_label_decides_masking_per_occurrence(tmp_path):
     out = load_workbook(tmp_path / "查核_masked.xlsx").active
     title, note = out["B2"].value, out["C2"].value
     assert "林○○" in title and "林宥慈" not in title    # 保戶 → 遮
-    assert note.count("林○○") == 1                      # 要保人 → 遮
-    assert note.count("林宥慈") == 1                     # 帳號 → 保留
+    # 客戶身分優先：帳號處也一併遮，否則同一組身分證尾碼會把遮罩解開
+    assert note.count("林○○") == 2
+    assert "林宥慈" not in note
     # 經手人：兩欄都保留（含無標籤的那一處）
     assert "葉珍玲" in out["B3"].value and "葉珍玲" in out["C3"].value
     assert "hcv2223195" not in out["C3"].value   # 但帳號字串仍遮
+
+
+def test_xlsx_customer_identity_not_leaked_via_agent_slot(tmp_path):
+    """保戶漏遮的兩種實際情形（v1.6.0 修正）：
+
+    1. 姓氏不在字庫（陽曼蘭）→ 客戶標籤本身即足以辨識
+    2. 同一人在「帳號」處保留姓名，配上相同身分證尾碼，
+       等於把「要保人」處的遮罩解開
+    """
+    from openpyxl import Workbook, load_workbook
+    src = tmp_path / "查核.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["系統編號", "標題", "說明"])
+    ws.append([7,
+               "(業務侵佔) 受理 宏泰人壽 保戶 饒書寧 的 聯絡資料 與 業務員/營業處所 相同",
+               "要保人 饒書寧(F228969519):地址 新北市汐止區秀山路147巷22號 "
+               "與 帳號 饒培杰(A121775567) 之 地址 相同 "
+               "地址 新北市汐止區秀山路147巷22號 與 帳號 饒書寧(F228969519) 之 地址 相同"])
+    ws.append([10,
+               "(業務侵佔) 受理 華南產物 保戶 陽曼蘭 的 聯絡資料 與 業務員/營業處所 相同",
+               "主被保人 陽曼蘭(H291234795):手機 0913456769 "
+               "與 帳號 林岳(H123456535) 之 電話 相同"])
+    ws.append([18, "(銷售資格) 受理 明台產物 經手人 黃熙予 不具險種銷售資格",
+               "明台產物_住宅火險(A-F01)<br>黃熙予(hcv1234535) 的 高齡"])
+    ws.append([22, None, "業務員個人保件，饒書寧與饒培杰為直系親屬關係"])
+    wb.save(src)
+    assert run([str(src)]) == 0
+    out = load_workbook(tmp_path / "查核_masked.xlsx").active
+    values = " | ".join(str(c.value) for row in out.iter_rows() for c in row)
+
+    # 客戶姓名：所有出現處都要遮，含「帳號」處與無標籤的備註
+    assert "饒書寧" not in values
+    assert "陽曼蘭" not in values and "陽○○" in values   # 姓氏不在字庫也要遮
+    # 純內部人員：各處保留
+    assert "饒培杰" in values
+    assert "林岳" in values
+    assert "黃熙予" in values                             # 經手人，含無標籤處
+    # 其他個資照遮
+    assert "F228969519" not in values and "秀山路" not in values
+    assert "0913456769" not in values

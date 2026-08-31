@@ -17,10 +17,13 @@
 
 內部人員豁免
 ------------
-姓名是否遮罩，以「該處的標籤」逐處判斷：客戶端標籤（保戶、要保人、
-被保險人…）遮罩；內部人員標籤（帳號、業務員、經手人…）保留。
-同一人可同時具備兩種身分——在「要保人」處遮、在「帳號」處保留。
-無標籤處則沿用一致性遮罩：只要該姓名曾以客戶身分出現過就遮。
+姓名是否遮罩，先看「這個人」再看「這一處」：
+
+  1. 只要該姓名在本文件任一處是客戶（保戶、要保人、被保險人…），
+     則每一處都遮——包含「帳號 X」處。因為同一格內兩處常共用同一個
+     身分證，保留其中一處的姓名等於把另一處的遮罩解開。
+  2. 從未以客戶身分出現過的純內部人員（業務員、帳號、經手人…），
+     各處都不遮，含無標籤處。
 """
 from __future__ import annotations
 
@@ -32,7 +35,8 @@ from . import detectors, masking
 from .detectors import PIIMatch
 
 # 會被登記、進而全文件一致遮罩的類型（皆為姓名類）
-_LEARNABLE_TYPES = ("name", "name_paren_id", "name_honorific", "name_bare")
+_LEARNABLE_TYPES = ("name", "name_customer", "name_paren_id",
+                    "name_honorific", "name_bare")
 
 
 @dataclass
@@ -171,17 +175,22 @@ class MaskingEngine:
                           context_hint: str) -> bool:
         """判斷某處姓名是否該遮罩。
 
-        1. 該處標籤是內部人員（帳號／業務員／經手人…）→ 不遮
-        2. 該處標籤是客戶端（保戶／要保人／被保險人…）→ 遮
-        3. 該處無標籤 → 看這個姓名在本文件是否曾以客戶身分出現：
-           只當過內部人員的（如 J 欄「經手人 葉珍玲」、K 欄無標籤的葉珍玲）
-           不遮；曾是客戶的則遮
+        1. 該姓名在本文件任一處是客戶 → 每一處都遮，含「帳號 X」處。
+           客戶身分具全文件優先性，否則遮罩會被自己還原：
+
+               要保人 饒○○(F22****519) … 帳號 饒書寧(F22****519)
+
+           兩處身分證尾碼相同，保留右邊那個姓名等於把左邊的遮罩解開。
+        2. 否則，該處標籤是內部人員（帳號／業務員／經手人…）→ 不遮
+        3. 純內部人員的姓名（從未以客戶身分出現）→ 各處都不遮，
+           含無標籤處（如 J 欄「經手人 葉珍玲」、K 欄無標籤的葉珍玲）
+        4. 其餘（無標籤且身分不明）→ 從嚴遮罩
         """
+        if name in self._known_names:
+            return True
         if detectors.is_agent_context(text, start, context_hint):
             return False
-        if detectors.is_customer_context(text, start, context_hint):
-            return True
-        return not (name in self._agent_names and name not in self._known_names)
+        return name not in self._agent_names
 
     def replacement(self, match: PIIMatch) -> str:
         return masking.make_replacement(match, self.mode)
