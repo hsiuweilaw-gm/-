@@ -171,8 +171,36 @@ export AML_PII_KEY="$(python -c 'import os,base64;print(base64.urlsafe_b64encode
 alembic upgrade head                 # 建立資料庫結構
 python -m scripts.seed_demo          # 選用：建立 18 個示範帳號與 60 件案件
 uvicorn app.main:app --reload
-pytest                               # 113 項測試
+pytest                               # 114 項測試（SQLite）
+
+# 以 PostgreSQL 執行測試。兩者在時區、欄位長度、排序上的差異
+# 只會在正式環境爆炸，改動資料存取邏輯後請兩邊都跑。
+AML_TEST_DATABASE_URL="postgresql+psycopg://aml:aml@localhost:5432/aml_test" pytest -q
 ```
+
+## 資料庫
+
+正式環境為 PostgreSQL 16，開發與測試預設為 SQLite。CI 兩者都跑
+（`.github/workflows/aml-tests.yml` 的 matrix），因為兩者的行為差異只會在正式環境才顯現：
+
+| 差異 | 後果 | 處理 |
+|---|---|---|
+| SQLite 取回的 datetime 無時區 | 與 `utcnow()` 比較拋 TypeError，帳號鎖定機制整個失效 | `models.as_aware()` 統一補時區 |
+| SQLite 不強制 VARCHAR 長度 | 外部名單欄位過長時，PostgreSQL 拒絕寫入導致整批匯入失敗 | `screening._fit()` 依欄位上限截斷 |
+| `LIKE` 大小寫敏感度不同 | 名單搜尋結果不一致 | 比對前一律正規化為大寫 |
+
+已於 PostgreSQL 16.13 實跑驗證：遷移、114 項測試、示範資料、26,579 筆名單匯入、
+瀏覽器操作流程、三種報表匯出，報表數字與 SQLite 完全一致。
+
+效能參考（26,586 個對象／60,674 個名稱）：
+
+| 作業 | SQLite | PostgreSQL |
+|---|---|---|
+| 名單匯入（每月一次） | 19 秒 | 81 秒 |
+| 單次姓名比對（每次存檔） | 5 ms | 16 ms |
+
+比對查詢在 PostgreSQL 上經 BitmapOr 走兩個索引，查詢本身 0.1 ms，
+其餘為候選字串產生的時間；名單成長不會使其線性劣化。
 
 ## 報表
 

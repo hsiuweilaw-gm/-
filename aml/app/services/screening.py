@@ -229,6 +229,19 @@ def names_for(value: str) -> list[tuple[str, str, str]]:
     return [(value.strip(), flat, sort_key(value))]
 
 
+def _fit(value: str | None, limit: int) -> str | None:
+    """截斷至欄位長度上限。
+
+    SQLite 不強制 VARCHAR 長度，PostgreSQL 會直接拒絕寫入。外部名單的欄位長度
+    無法預期（本次匯入的別名欄位就有 3,008 字元），不先截斷的話，
+    某次名單更新會讓整批匯入在正式環境失敗，而開發環境完全看不出來。
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text[:limit] if text else None
+
+
 def add_entry(db: Session, list_type: str, value: str, *, source: str | None = None,
               note: str | None = None, external_id: str | None = None,
               name_zh: str | None = None, aliases: list[str] | None = None,
@@ -243,17 +256,20 @@ def add_entry(db: Session, list_type: str, value: str, *, source: str | None = N
             WatchListEntry.source == source,
             WatchListEntry.external_id == external_id,
         ).one_or_none()
-    entry = existing or WatchListEntry(list_type=list_type, source=source,
-                                       external_id=external_id)
-    entry.value = value.strip()
-    entry.name_zh = (name_zh or "").strip() or None
-    entry.entity_type = entity_type
-    entry.countries = countries
-    entry.program = program
-    entry.listed_on = listed_on
-    entry.status = status
-    entry.note = note
-    entry.batch = batch
+    entry = existing or WatchListEntry(
+        list_type=list_type, source=_fit(source, 64), external_id=_fit(external_id, 64)
+    )
+    entry.source = _fit(source, 64)
+    entry.external_id = _fit(external_id, 64)
+    entry.value = _fit(value, 512) or value.strip()[:512]
+    entry.name_zh = _fit(name_zh, 512)
+    entry.entity_type = _fit(entity_type, 32)
+    entry.countries = _fit(countries, 512)
+    entry.program = _fit(program, 512)
+    entry.listed_on = _fit(listed_on, 32)
+    entry.status = _fit(status, 32)
+    entry.note = note  # Text，無長度上限
+    entry.batch = _fit(batch, 64)
     # 已除名者停用，但保留紀錄以證明曾經比對過。
     entry.active = (status or "").strip() != "已除名"
     if existing:

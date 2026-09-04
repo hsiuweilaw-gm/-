@@ -131,3 +131,30 @@ def test_very_long_name_does_not_explode(db, listed):
     """超長字串不做子字串展開，避免候選數爆炸拖垮儲存。"""
     hits = hits_for(db, "台" * 200)
     assert hits == []
+
+
+def test_overlong_source_fields_do_not_break_the_import(db):
+    """外部名單的欄位長度無法預期，過長時須截斷而非讓整批匯入失敗。
+
+    SQLite 不強制 VARCHAR 長度，PostgreSQL 會直接拒絕寫入——
+    不先截斷的話，某次名單更新會在正式環境炸掉，而開發環境完全看不出來。
+    本次匯入的來源檔中，別名欄位最長就有 3,008 字元。
+    """
+    entry = screening.add_entry(
+        db, "sanction", "X" * 900,
+        source="S" * 200, external_id="E" * 200, name_zh="中" * 900,
+        entity_type="T" * 100, countries="C" * 900, program="P" * 900,
+        listed_on="D" * 100, status="U" * 100, batch="B" * 200,
+        aliases=["A" * 900],
+    )
+    db.commit()
+    assert len(entry.value) <= 512
+    assert len(entry.name_zh) <= 512
+    assert len(entry.countries) <= 512
+    assert len(entry.program) <= 512
+    assert len(entry.source) <= 64
+    assert len(entry.external_id) <= 64
+    assert len(entry.entity_type) <= 32
+    assert len(entry.status) <= 32
+    assert len(entry.batch) <= 64
+    assert all(len(n.name) <= 512 and len(n.normalized) <= 512 for n in entry.names)

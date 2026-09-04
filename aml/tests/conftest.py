@@ -7,8 +7,12 @@ import tempfile
 import pytest
 
 # 測試以獨立的 SQLite 檔與固定金鑰執行，必須在匯入 app 之前設定。
+# 預設以 SQLite 執行（快）。設定 AML_TEST_DATABASE_URL 可改指向 PostgreSQL，
+# 用來抓出兩者的行為差異（時區、型別、約束）——這類差異只在正式環境才會爆炸。
 _TMP = tempfile.mkdtemp(prefix="aml-test-")
-os.environ["AML_DATABASE_URL"] = f"sqlite:///{_TMP}/test.db"
+os.environ["AML_DATABASE_URL"] = os.environ.get(
+    "AML_TEST_DATABASE_URL", f"sqlite:///{_TMP}/test.db"
+)
 os.environ["AML_SECRET_KEY"] = "test-secret-key-not-for-production"
 os.environ["AML_PII_KEY"] = base64.urlsafe_b64encode(b"0" * 32).decode()
 os.environ["AML_BOOTSTRAP_ADMIN_PASSWORD"] = ""
