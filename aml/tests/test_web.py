@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_db
 from app.main import app
-from app.models import AssessmentStatus, Role
+from app.models import AssessmentStatus, Role, User
 from app.scoring.engine import load_questionnaire
 from app.services import assessments as svc
 
@@ -233,3 +233,54 @@ def test_auditor_is_read_only(client, db, agent, q):
 
 def test_healthz_is_public(client):
     assert client.get("/healthz").json()["status"] == "ok"
+
+
+def test_roster_import_endpoint_creates_accounts(client, db):
+    """管理者上傳 CSV 即可批次建帳號，並在畫面上取得初始密碼清單。"""
+    from app.models import OrgUnit
+
+    make_user(db, "admin01", Role.ADMIN)
+    db.add(OrgUnit(code="TP01", name="台北通訊處"))
+    db.commit()
+
+    login(client, "admin01")
+    content = (
+        "帳號,姓名,角色,單位代碼\n"
+        "agent101,王大明,agent,TP01\n"
+        "agent102,李小華,agent,TP01\n"
+    ).encode()
+    res = client.post("/admin/roster", files={"file": ("roster.csv", content, "text/csv")})
+    assert res.status_code == 200
+    assert "新增 2 個帳號" in res.text
+    assert "僅顯示這一次" in res.text
+    assert db.query(User).filter(User.username == "agent101").one().display_name == "王大明"
+
+
+def test_roster_import_rejects_bad_file_without_partial_writes(client, db):
+    make_user(db, "admin01", Role.ADMIN)
+    db.commit()
+    before = db.query(User).count()
+
+    login(client, "admin01")
+    content = "帳號,姓名,角色,單位代碼\nagent101,王大明,agent,NOPE\n".encode()
+    res = client.post("/admin/roster", files={"file": ("roster.csv", content, "text/csv")})
+    assert res.status_code == 400
+    assert "名冊未匯入" in res.text
+    assert db.query(User).count() == before
+
+
+def test_only_admin_can_import_roster(client, db, agent):
+    login(client, "agent01")
+    content = "帳號,姓名\nx,y\n".encode()
+    res = client.post("/admin/roster", files={"file": ("roster.csv", content, "text/csv")})
+    assert res.status_code == 403
+
+
+def test_roster_template_is_downloadable(client, db):
+    make_user(db, "admin01", Role.ADMIN)
+    db.commit()
+    login(client, "admin01")
+    res = client.get("/admin/roster/template.csv")
+    assert res.status_code == 200
+    assert res.text.startswith("﻿"), "需帶 BOM，Excel 開啟中文才不會亂碼"
+    assert "帳號" in res.text

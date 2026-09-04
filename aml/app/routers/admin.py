@@ -5,35 +5,91 @@
 """
 from __future__ import annotations
 
+import io
 from datetime import date
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_admin
 from ..models import OrgUnit, Role, User
 from ..security import hash_password, new_token
-from ..services import audit
+from ..services import audit, roster
 from ..templating import templates
 from .auth import client_ip
 
 router = APIRouter(prefix="/admin")
 
 
+def _admin_context(db: Session, user: User, **extra) -> dict:
+    users = db.query(User).order_by(User.role, User.username).all()
+    units = db.query(OrgUnit).order_by(OrgUnit.code).all()
+    return {
+        "user": user, "users": users, "units": units, "roles": list(Role),
+        "today": date.today(), "unit_names": {u.id: u.name for u in units},
+    } | extra
+
+
 @router.get("", response_class=HTMLResponse)
 def admin_home(request: Request, db: Session = Depends(get_db),
                user: User = Depends(require_admin)):
-    users = db.query(User).order_by(User.role, User.username).all()
-    units = db.query(OrgUnit).order_by(OrgUnit.code).all()
-    today = date.today()
+    return templates.TemplateResponse(request, "admin.html", _admin_context(db, user))
+
+
+@router.get("/roster/template.csv")
+def roster_template(user: User = Depends(require_admin)):
+    """名冊匯入範本。加上 BOM，Excel 開啟才不會把中文顯示成亂碼。"""
+    data = ("\ufeff" + roster.template_csv()).encode("utf-8")
+    return StreamingResponse(
+        io.BytesIO(data), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="roster-template.csv"'},
+    )
+
+
+@router.post("/roster", response_class=HTMLResponse)
+async def import_roster(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """批次匯入業務員名冊。任一列有誤即整批不寫入。"""
+    raw = await file.read()
+    try:
+        content = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            # Excel 在中文 Windows 另存 CSV 預設為 Big5。
+            content = raw.decode("cp950")
+        except UnicodeDecodeError:
+            message = "檔案編碼無法辨識，請另存為 UTF-8 或 Big5 的 CSV"
+            return templates.TemplateResponse(
+                request, "admin.html", _admin_context(db, user, roster_error=message),
+                status_code=400,
+            )
+
+    result = roster.parse_and_import(db, content)
+    if not result.ok:
+        db.rollback()
+        audit.record(db, actor=user, action="roster.import_failed", entity_type="user",
+                     entity_id=None, detail={"errors": len(result.errors)}, ip=client_ip(request))
+        db.commit()
+        return templates.TemplateResponse(
+            request, "admin.html", _admin_context(db, user, roster_result=result), status_code=400,
+        )
+
+    audit.record(
+        db, actor=user, action="roster.import", entity_type="user", entity_id=None,
+        detail={"created": [c.username for c in result.created], "updated": result.updated},
+        ip=client_ip(request),
+    )
+    db.commit()
     return templates.TemplateResponse(
         request, "admin.html",
-        {
-            "user": user, "users": users, "units": units, "roles": list(Role), "today": today,
-            "unit_names": {u.id: u.name for u in units},
-        },
+        _admin_context(db, user, roster_result=result,
+                       credentials_csv=roster.credentials_csv(result.created)),
     )
 
 
@@ -90,15 +146,10 @@ def create_user(
                  entity_id=username, detail={"role": role_value.value}, ip=client_ip(request))
     db.commit()
 
-    users = db.query(User).order_by(User.role, User.username).all()
-    units = db.query(OrgUnit).order_by(OrgUnit.code).all()
     return templates.TemplateResponse(
         request, "admin.html",
-        {
-            "user": user, "users": users, "units": units, "roles": list(Role),
-            "today": date.today(), "unit_names": {u.id: u.name for u in units},
-            "new_credential": {"username": username, "password": initial_password},
-        },
+        _admin_context(db, user,
+                       new_credential={"username": username, "password": initial_password}),
     )
 
 
@@ -133,15 +184,11 @@ def reset_password(request: Request, user_id: int, db: Session = Depends(get_db)
                  entity_id=target.username, ip=client_ip(request))
     db.commit()
 
-    users = db.query(User).order_by(User.role, User.username).all()
-    units = db.query(OrgUnit).order_by(OrgUnit.code).all()
     return templates.TemplateResponse(
         request, "admin.html",
-        {
-            "user": user, "users": users, "units": units, "roles": list(Role),
-            "today": date.today(), "unit_names": {u.id: u.name for u in units},
-            "new_credential": {"username": target.username, "password": initial_password},
-        },
+        _admin_context(db, user,
+                       new_credential={"username": target.username,
+                                       "password": initial_password}),
     )
 
 

@@ -11,9 +11,64 @@
 </div>
 {% endif %}
 
+{% if roster_error %}<div class="alert danger">{{ roster_error }}</div>{% endif %}
+
+{% if roster_result %}
+  {% if roster_result.ok %}
+  <div class="alert info">
+    <strong>名冊匯入完成：</strong>新增 {{ roster_result.created|length }} 個帳號、
+    更新 {{ roster_result.updated|length }} 個既有帳號。
+  </div>
+    {% if roster_result.created %}
+    <div class="card" style="border-color:#edd3a1">
+      <h2 style="color:var(--warn)">初始密碼清單（僅顯示這一次）</h2>
+      <p class="muted">
+        請立即複製保存並逐人交付，離開本頁後無法再取得。所有人首次登入都會被要求變更密碼。
+      </p>
+      <textarea readonly rows="10"
+        style="font-family:monospace;font-size:.85rem">{{ credentials_csv }}</textarea>
+      <div class="table-wrap" style="margin-top:.8rem"><table>
+        <thead><tr><th>帳號</th><th>姓名</th><th>初始密碼</th></tr></thead>
+        <tbody>{% for c in roster_result.created %}
+          <tr><td>{{ c.username }}</td><td>{{ c.display_name }}</td>
+            <td style="font-family:monospace">{{ c.password }}</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+    </div>
+    {% endif %}
+  {% else %}
+  <div class="alert danger">
+    <strong>名冊未匯入。</strong>以下 {{ roster_result.errors|length }} 個問題全部修正後請重新上傳
+    （為避免匯到一半難以追查，任何一列有誤即整批不寫入）。
+    <ul>{% for e in roster_result.errors %}
+      <li>第 {{ e.line }} 列：{{ e.message }}</li>
+    {% endfor %}</ul>
+  </div>
+  {% endif %}
+{% endif %}
+
+<form method="post" action="/admin/roster" enctype="multipart/form-data" class="card">
+  <h2>批次匯入業務員名冊</h2>
+  <p class="muted">
+    300 人以上規模請用本功能，不要逐一建立。CSV 欄位：
+    <code>帳號、姓名、角色、單位代碼、業務員登錄字號、登錄有效日期、洗防訓練完訓日</code>，
+    其中帳號與姓名必填，日期格式 YYYY-MM-DD。
+    <strong>單位代碼必須先在下方「新增組織單位」建立</strong>，以免打錯字產生幽靈單位。
+    帳號已存在者只更新資料、<strong>不會重設密碼</strong>，因此本檔可重複上傳作為名冊同步之用。
+  </p>
+  <div class="field">
+    <label for="file">選擇 CSV 檔（UTF-8 或 Big5）</label>
+    <input type="file" id="file" name="file" accept=".csv,text/csv" required>
+  </div>
+  <div class="btn-row">
+    <button type="submit">匯入名冊</button>
+    <a class="btn secondary" href="/admin/roster/template.csv">下載空白範本</a>
+  </div>
+</form>
+
 <div class="grid cols-2">
   <form method="post" action="/admin/users" class="card">
-    <h2>新增帳號</h2>
+    <h2>新增單一帳號</h2>
     <div class="field"><label for="username">帳號</label>
       <input type="text" id="username" name="username" required></div>
     <div class="field"><label for="display_name">姓名</label>
