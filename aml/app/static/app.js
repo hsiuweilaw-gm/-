@@ -31,7 +31,8 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       pending.shift();
-      if (data && typeof data.total_score === "number") render(data);
+      // 業務員的回應不含 total_score，改以填答進度欄位判斷是否為評分結果。
+      if (data && typeof data.total_factors === "number") render(data);
       setHint("已儲存 " + new Date().toLocaleTimeString("zh-TW"), "saved");
     } catch (err) {
       setHint("尚未儲存，將自動重試（請確認網路）", "error");
