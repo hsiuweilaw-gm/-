@@ -3,7 +3,17 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -18,10 +28,12 @@ from ..models import (
     Role,
     User,
     WatchListEntry,
+    WatchListName,
+    as_aware,
     utcnow,
 )
 from ..security import decrypt_pii, mask_id_number, mask_name
-from ..services import aggregate, anomalies, audit, screening
+from ..services import aggregate, anomalies, audit, sanctions_import, screening
 from ..templating import templates
 from .assessments import case_context, load_case
 from .auth import client_ip
@@ -58,6 +70,21 @@ def dashboard(request: Request, db: Session = Depends(get_db),
         .limit(50)
         .all()
     )
+    # 曾命中名單的案件。包含草稿——業務員看到「應婉拒」後放棄草稿另建新案，
+    # 是最需要被看見的規避手法，而放棄的草稿不會出現在任何其他清單裡。
+    watchlist_hits = (
+        db.query(Assessment)
+        .filter(Assessment.watchlist_hit_at.isnot(None))
+        .order_by(Assessment.watchlist_hit_at.desc())
+        .limit(50)
+        .all()
+    )
+    abandoned = [
+        c for c in watchlist_hits
+        if c.status == AssessmentStatus.DRAFT
+        and as_aware(c.updated_at) < utcnow() - timedelta(hours=24)
+    ]
+
     # 只掃描近 90 天，避免每次開啟儀表板都全表掃描。
     signals = anomalies.scan(db, since=utcnow() - timedelta(days=90), limit=200)
 
@@ -68,6 +95,8 @@ def dashboard(request: Request, db: Session = Depends(get_db),
             "summary": summary,
             "queue": queue,
             "str_pending": str_pending,
+            "watchlist_hits": watchlist_hits,
+            "abandoned": abandoned,
             "signals": signals[:20],
             "signal_total": len(signals),
             "org_names": _org_names(db),
@@ -163,26 +192,86 @@ def mark_str(
     return RedirectResponse(f"/compliance/cases/{case_no}", status_code=303)
 
 
+def _watchlist_context(db: Session, user: User, **extra) -> dict:
+    """完整制裁名單可達數萬筆，清單只顯示最近 200 筆；查特定對象請用搜尋。"""
+    keyword = (extra.get("keyword") or "").strip()
+    query = db.query(WatchListEntry).filter(WatchListEntry.active.is_(True))
+    if keyword:
+        normalized = screening.normalize(keyword)
+        query = query.join(WatchListName).filter(
+            WatchListName.normalized.like(f"%{normalized}%")
+        )
+    entries = query.order_by(WatchListEntry.id.desc()).limit(200).all()
+    total = (
+        db.query(func.count(WatchListEntry.id))
+        .filter(WatchListEntry.active.is_(True)).scalar()
+    )
+    return {
+        "user": user,
+        "entries": entries,
+        "total": total,
+        "summary": sanctions_import.summary(db),
+        "list_types": screening.LIST_TYPES,
+        "screened_types": screening.SCREENED_LIST_TYPES,
+        "can_edit": user.role in (Role.COMPLIANCE, Role.ADMIN),
+    } | extra
+
+
 @router.get("/watchlist", response_class=HTMLResponse)
-def watchlist(request: Request, db: Session = Depends(get_db),
-              user: User = Depends(require_oversight)):
-    entries = (
-        db.query(WatchListEntry)
-        .filter(WatchListEntry.active.is_(True))
-        .order_by(WatchListEntry.list_type, WatchListEntry.value)
-        .all()
-    )
-    counts = dict(
-        db.query(WatchListEntry.list_type, func.count(WatchListEntry.id))
-        .filter(WatchListEntry.active.is_(True))
-        .group_by(WatchListEntry.list_type)
-        .all()
-    )
+def watchlist(request: Request, q: str = Query("", max_length=64),
+              db: Session = Depends(get_db), user: User = Depends(require_oversight)):
     return templates.TemplateResponse(
-        request, "watchlist.html",
-        {"user": user, "entries": entries, "counts": counts,
-         "list_types": screening.LIST_TYPES,
-         "can_edit": user.role in (Role.COMPLIANCE, Role.ADMIN)},
+        request, "watchlist.html", _watchlist_context(db, user, keyword=q)
+    )
+
+
+@router.post("/watchlist/import", response_class=HTMLResponse)
+async def import_watchlist(
+    request: Request,
+    file: UploadFile = File(...),
+    keep_old: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_compliance),
+):
+    """上傳制裁名單檔（xlsx 或 csv）。"""
+    raw = await file.read()
+    filename = (file.filename or "").lower()
+    try:
+        if filename.endswith((".xlsx", ".xlsm")):
+            rows = sanctions_import.rows_from_xlsx(raw)
+        else:
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("cp950")
+            rows = sanctions_import.rows_from_csv(text)
+        result = sanctions_import.import_rows(db, rows, replace_sources=not keep_old)
+    except Exception as exc:  # noqa: BLE001 檔案由人上傳，解析失敗要回報而非 500
+        db.rollback()
+        return templates.TemplateResponse(
+            request, "watchlist.html",
+            _watchlist_context(db, user, import_error=f"檔案無法解析：{exc}"),
+            status_code=400,
+        )
+
+    if not result.ok:
+        db.rollback()
+        return templates.TemplateResponse(
+            request, "watchlist.html",
+            _watchlist_context(db, user, import_error="；".join(result.errors)),
+            status_code=400,
+        )
+
+    audit.record(
+        db, actor=user, action="watchlist.import", entity_type="watchlist",
+        entity_id=result.batch,
+        detail={"file": file.filename, "entries": result.entries, "names": result.names,
+                "by_source": result.by_source, "deactivated": result.deactivated},
+        ip=client_ip(request),
+    )
+    db.commit()
+    return templates.TemplateResponse(
+        request, "watchlist.html", _watchlist_context(db, user, import_result=result)
     )
 
 

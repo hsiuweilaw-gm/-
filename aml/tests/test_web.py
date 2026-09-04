@@ -376,3 +376,34 @@ def test_roster_template_is_downloadable(client, db):
     assert res.status_code == 200
     assert res.text.startswith("﻿"), "需帶 BOM，Excel 開啟中文才不會亂碼"
     assert "帳號" in res.text
+
+
+def test_account_lockout_after_repeated_failures(client, db, agent):
+    """連續登入失敗須鎖定帳號。
+
+    此測試曾抓出一個時區缺陷：SQLite 取回的 locked_until 沒有時區，
+    與 utcnow() 比較會拋 TypeError，導致鎖定判斷整個炸掉。
+    """
+    from app.deps import MAX_FAILED_LOGINS
+
+    for _ in range(MAX_FAILED_LOGINS):
+        client.post("/login", data={"username": "agent01", "password": "wrong"})
+    res = client.post("/login", data={"username": "agent01", "password": PASSWORD})
+    assert res.status_code == 423
+    assert "鎖定" in res.text
+
+
+def test_compliance_dashboard_lists_watchlist_hits(client, db, agent, compliance):
+    """命中名單的案件必須出現在洗防儀表板，包含未送出的草稿。"""
+    from app.services import screening
+
+    screening.add_entry(db, "sanction", "制裁對象公司", source="TW", external_id="T-9")
+    db.commit()
+    case = svc.create_draft(db, agent)
+    svc.save_profile(db, case, agent, {"holder_name": "制裁對象公司"})
+
+    login(client, "aml01")
+    res = client.get("/compliance")
+    assert res.status_code == 200
+    assert "曾命中制裁" in res.text
+    assert case.case_no in res.text

@@ -116,29 +116,40 @@ def screen_case(db: Session, assessment: Assessment) -> list[Hit]:
     })
 
 
-# 命中這兩類名單即應婉拒建立業務關係（範本第四點第八款）；
-# 其餘名單類別（PEP、高風險國家）則強制列為高風險（範本第五點第一、二款）。
-BLOCKING_LISTS = ("sanction", "terrorist")
-
-
 def evaluate_with_screening(db: Session, assessment: Assessment) -> tuple[ScoreResult, list[Hit]]:
     """作答評分 + 名單比對。這是所有對外呈現與送出判定應使用的版本。
 
     名單比對的結果只會提升風險等級或擋件，不會降低，也不會更動總分。
+
+    命中強度決定處置：制裁或資恐名單「完全相符」才擋件（範本第四點第八款所指的
+    「對象為制裁名單所列者」）；部分相符與 PEP 命中一律強制高風險並交人工複核，
+    逕行擋件會誤傷同名同姓之人。
     """
     result = evaluate(assessment)
     hits = screen_case(db, assessment)
+    mark_watchlist_hit(assessment, hits)
     for hit in hits:
-        description = f"{hit.list_label}命中：{hit.query}「{hit.matched_value}」"
-        if hit.list_type in BLOCKING_LISTS:
-            result.blocked_reasons.append(f"應婉拒建立業務關係：{description}")
+        if hit.blocking:
+            result.blocked_reasons.append(f"應婉拒建立業務關係：{hit.describe}")
             result.blocked = True
         else:
-            result.override_reasons.append(f"強制高風險：{description}")
+            result.override_reasons.append(f"強制高風險：{hit.describe}")
             result.override_applied = True
     if hits:
         result.level = "high"
     return result, hits
+
+
+def mark_watchlist_hit(assessment: Assessment, hits: list[Hit]) -> None:
+    """記下名單命中的事實。只寫一次，且永不清除。
+
+    業務員發現命中後改寫姓名、或直接放棄草稿另建新案，都不會抹去這筆紀錄；
+    洗防人員因此看得到「曾經命中但最後送出時沒命中」的案件。
+    """
+    if not hits or assessment.watchlist_hit_at is not None:
+        return
+    assessment.watchlist_hit_at = utcnow()
+    assessment.watchlist_hit_note = "；".join(h.describe for h in hits[:5])
 
 
 def apply_result(assessment: Assessment, result: ScoreResult) -> None:

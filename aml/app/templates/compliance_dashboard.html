@@ -28,6 +28,38 @@
     <div class="label">尚未送出草稿</div></div>
 </div>
 
+{% if watchlist_hits %}
+<div class="card" style="border-color:#f0b4b4">
+  <h2 style="color:var(--danger)">曾命中制裁／資恐／PEP 名單（{{ watchlist_hits|length }} 件）</h2>
+  <p class="muted">
+    命中一經發生即留痕，<strong>不因業務員事後修改姓名或放棄草稿而消失</strong>。
+    請逐案確認：命中是否為同名誤判、業務端是否確實停止招攬、有無改以其他寫法重新送件。
+  </p>
+  {% if abandoned %}
+  <div class="alert danger">
+    <strong>下列 {{ abandoned|length }} 件命中後停留在草稿超過 24 小時未送出，請優先追查：</strong>
+    {{ abandoned | map(attribute='case_no') | join('、') }}
+  </div>
+  {% endif %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>單位</th><th>命中時間</th>
+      <th>命中內容</th><th>目前狀態</th><th></th></tr></thead>
+    <tbody>{% for c in watchlist_hits %}
+      <tr class="flagged">
+        <td>{{ c.case_no }}</td>
+        <td>{{ c.agent.display_name }}</td>
+        <td>{{ org_names.get(c.org_unit_id, "－") }}</td>
+        <td class="muted">{{ c.watchlist_hit_at.strftime("%m/%d %H:%M") }}</td>
+        <td style="font-size:.82rem">{{ c.watchlist_hit_note }}</td>
+        <td><span class="tag {{ STATUS_TONE[c.status] }}">{{ STATUS_LABELS[c.status] }}</span></td>
+        <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/compliance/cases/{{ c.case_no }}">複核</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
 {% if str_pending %}
 <div class="card" style="border-color:#f0b4b4">
   <h2 style="color:var(--danger)">待申報疑似洗錢交易（{{ str_pending|length }} 件）</h2>

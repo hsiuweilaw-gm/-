@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import get_db
-from .models import Assessment, Role, User, utcnow
+from .models import Assessment, Role, User, as_aware, utcnow
 
 SESSION_COOKIE = "aml_session"
 MAX_FAILED_LOGINS = 5
@@ -109,7 +109,8 @@ def register_failed_login(db: Session, user: User) -> None:
 
 
 def is_locked(user: User) -> bool:
-    return bool(user.locked_until and user.locked_until > utcnow())
+    locked_until = as_aware(user.locked_until)
+    return bool(locked_until and locked_until > utcnow())
 
 
 def clear_failed_logins(db: Session, user: User) -> None:

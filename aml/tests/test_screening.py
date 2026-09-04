@@ -42,7 +42,7 @@ def test_sanction_list_hit_blocks_the_case(db, agent, q):
     assert case.status == AssessmentStatus.BLOCKED, "命中制裁名單應婉拒建立業務關係"
     assert case.total_score == 10, "擋件不改變總分"
     reasons = svc.evaluate_with_screening(db, case)[0].blocked_reasons
-    assert any("制裁名單命中" in r for r in reasons)
+    assert any("制裁名單" in r and "完全相符" in r for r in reasons)
 
 
 def test_pep_list_hit_forces_high_risk_without_blocking(db, agent, q):
@@ -138,3 +138,30 @@ def test_pasting_a_list_splits_only_on_real_newlines():
     normalized = pasted.replace("\r\n", "\n").replace("\r", "\n")
     robust = [line.strip() for line in normalized.split("\n") if line.strip()]
     assert robust == ["甲公司\u0085乙丙公司", "丁公司"]
+
+
+def test_watchlist_hit_is_recorded_permanently(db, agent, q):
+    """業務員看到「應婉拒」後改寫姓名或放棄草稿，命中紀錄仍須留存。
+
+    沒有這道留痕，只要放棄草稿另建新案，洗防人員永遠不會知道曾經命中過。
+    """
+    screening.add_entry(db, "sanction", "制裁對象公司", source="TW", external_id="T-1")
+    db.commit()
+
+    case = svc.create_draft(db, agent)
+    svc.save_profile(db, case, agent, {"holder_name": "制裁對象公司"})
+    assert case.watchlist_hit_at is not None
+    assert "制裁對象公司" in case.watchlist_hit_note
+    first_seen = case.watchlist_hit_at
+
+    # 業務員改成不會命中的名字
+    svc.save_profile(db, case, agent, {"holder_name": "正常客戶"})
+    assert svc.evaluate_with_screening(db, case)[0].blocked is False, "改名後當下確實不再命中"
+    assert case.watchlist_hit_at == first_seen, "但命中的事實必須留著"
+    assert case.watchlist_hit_note
+
+
+def test_case_with_no_hit_has_no_watchlist_mark(db, agent, q):
+    case = svc.create_draft(db, agent)
+    svc.save_profile(db, case, agent, {"holder_name": "王大明"})
+    assert case.watchlist_hit_at is None

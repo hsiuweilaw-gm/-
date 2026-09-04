@@ -29,6 +29,18 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def as_aware(value: datetime | None) -> datetime | None:
+    """把資料庫取回的時間補上時區。
+
+    SQLite 不保存時區，取回來是 naive；PostgreSQL 則帶時區。
+    直接拿來與 utcnow() 比較會在 SQLite 上拋 TypeError，
+    因此凡是與現在時刻比較的地方都要先經過這裡。
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -135,6 +147,14 @@ class Assessment(Base):
     override_reasons: Mapped[str | None] = mapped_column(Text)  # JSON list
     blocked_reasons: Mapped[str | None] = mapped_column(Text)   # JSON list
 
+    # 名單命中留痕：一旦命中即記錄，之後不因業務員修改姓名而清除。
+    # 若無此欄位，業務員看到「應婉拒」後只要放棄草稿改個寫法重填，
+    # 洗防人員永遠不會知道曾經命中過。
+    watchlist_hit_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    watchlist_hit_note: Mapped[str | None] = mapped_column(Text)
+
     # 高風險案件之照會紀錄。業務員看不到分數，但跨越門檻時系統會警示，
     # 並要求其確認已照會單位主管後始得送出（內控手冊：確認為高風險時應立即通知主管備查及列管）。
     consulted_supervisor: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -233,20 +253,61 @@ Index("ix_audit_entity", AuditEvent.entity_type, AuditEvent.entity_id)
 
 
 class WatchListEntry(Base):
-    """制裁／資恐／PEP／高風險國家名單。由洗防專責人員維護與匯入。"""
+    """名單上的一個對象（自然人、法人、船舶等）。
+
+    一個對象可能有多個可比對名稱（原文、中文、別名），存於 WatchListName。
+    """
 
     __tablename__ = "watchlist"
-    __table_args__ = (UniqueConstraint("list_type", "normalized_value"),)
+    __table_args__ = (UniqueConstraint("list_type", "source", "external_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     list_type: Mapped[str] = mapped_column(String(32), index=True)
     # sanction（制裁名單）/ terrorist（資恐）/ pep（重要政治性職務人士）/ high_risk_country
-    value: Mapped[str] = mapped_column(String(256))
-    normalized_value: Mapped[str] = mapped_column(String(256), index=True)
-    source: Mapped[str | None] = mapped_column(String(128))  # 名單來源（如金管會函轉、UN、OFAC）
+    value: Mapped[str] = mapped_column(String(512))          # 主要名稱，供顯示
+    # 來源清單（TW／UN／OFAC／EU／手動）與該清單的編號
+    source: Mapped[str | None] = mapped_column(String(64), index=True)
+    external_id: Mapped[str | None] = mapped_column(String(64))
+    entity_type: Mapped[str | None] = mapped_column(String(32))  # Person / Organization / Vessel …
+    name_zh: Mapped[str | None] = mapped_column(String(512))
+    countries: Mapped[str | None] = mapped_column(String(512))
+    program: Mapped[str | None] = mapped_column(String(512))  # 依據／制裁計畫
+    listed_on: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str | None] = mapped_column(String(32))  # 制裁有效／已除名
     note: Mapped[str | None] = mapped_column(Text)
-    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    batch: Mapped[str | None] = mapped_column(String(64), index=True)  # 匯入批次
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    names: Mapped[list[WatchListName]] = relationship(
+        back_populates="entry", cascade="all, delete-orphan"
+    )
+
+
+class WatchListName(Base):
+    """名單對象的一個可比對名稱。
+
+    比對一律以「候選字串查索引」進行，不做全表掃描：
+    由客戶姓名產生候選（整串、詞彙子集的排序鍵、連續子字串），再以索引查詢。
+    這確保比對方向永遠是「名單上的名稱出現在客戶姓名中」，
+    而非反向——後者會讓客戶「陳」命中名單上的「陳世憲」。
+    """
+
+    __tablename__ = "watchlist_names"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("watchlist.id"), index=True)
+    name: Mapped[str] = mapped_column(String(512))
+    kind: Mapped[str] = mapped_column(String(16))  # primary / zh / alias
+    # 正規化後去除所有非字母數字與非漢字之字元
+    normalized: Mapped[str] = mapped_column(String(512), index=True)
+    # 詞彙排序後串接，用於比對詞序不同的拉丁字母姓名
+    sort_key: Mapped[str] = mapped_column(String(512), index=True)
+
+    entry: Mapped[WatchListEntry] = relationship(back_populates="names")
+
+
+Index("ix_watchlist_names_lookup", WatchListName.normalized, WatchListName.sort_key)
 
 
 class ReportExport(Base):

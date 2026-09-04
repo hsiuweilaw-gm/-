@@ -16,6 +16,14 @@
 <div class="alert warn"><strong>經強制規則列為高風險：</strong>
   <ul>{% for r in case.override_reasons|json_list %}<li>{{ r }}</li>{% endfor %}</ul></div>
 {% endif %}
+{% if case.watchlist_hit_at %}
+<div class="alert danger"><strong>曾命中名單（{{ case.watchlist_hit_at.strftime("%Y-%m-%d %H:%M") }}）：</strong>
+  <p style="margin:.4rem 0 0">{{ case.watchlist_hit_note }}</p>
+  <p class="muted" style="margin:.4rem 0 0">
+    此紀錄於命中當下寫入，不因事後修改姓名而清除。若目前案件已無命中，請確認原因。
+  </p>
+</div>
+{% endif %}
 {% if signals %}
 <div class="alert warn"><strong>作答行為異常訊號：</strong>
   <ul>{% for s in signals %}<li>{{ s }}</li>{% endfor %}</ul></div>
