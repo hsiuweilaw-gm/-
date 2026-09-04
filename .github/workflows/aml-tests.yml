@@ -1,0 +1,46 @@
+name: aml-tests
+
+# 洗錢防制客戶風險評估系統的測試與靜態檢查。
+#
+# 評分邏輯、風險門檻、強制高風險與擋件規則、年度報表版面，都直接對應
+# 主管機關函令與公司內控制度的具體要求。任何變更都必須先通過這些測試，
+# 才能確保系統的判定結果與已報備的制度一致。
+on:
+  pull_request:
+    paths:
+      - "aml/**"
+      - ".github/workflows/aml-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "aml/**"
+      - ".github/workflows/aml-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            aml/requirements.txt
+            aml/requirements-dev.txt
+
+      - name: 安裝相依套件
+        run: pip install -r requirements-dev.txt
+
+      - name: 靜態檢查
+        run: ruff check app scripts tests
+
+      - name: 測試
+        run: pytest -q
