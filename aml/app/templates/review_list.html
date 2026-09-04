@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}待簽核案件{% endblock %}
+{% block content %}
+<h1>待簽核案件</h1>
+
+{% if blocked %}
+<div class="card" style="border-color:#f0b4b4">
+  <h2 style="color:var(--danger)">應婉拒案件（{{ blocked|length }} 件）</h2>
+  <p class="muted">範本第四點所定情形，不得建立業務關係。請確認業務員已停止招攬並留存紀錄。</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>送出時間</th><th>總分</th><th>擋件事由</th><th></th></tr></thead>
+    <tbody>
+    {% for c in blocked %}
+      <tr class="flagged">
+        <td>{{ c.case_no }}</td>
+        <td>{{ c.agent.display_name }}</td>
+        <td>{{ c.submitted_at.strftime("%m/%d %H:%M") if c.submitted_at else "－" }}</td>
+        <td>{{ c.total_score }}</td>
+        <td>{% for r in c.blocked_reasons|json_list %}<div>{{ r }}</div>{% endfor %}</td>
+        <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/review/{{ c.case_no }}">檢視</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>高風險待同意（{{ pending|length }} 件）</h2>
+  <p class="muted">
+    範本第五點第一款：高風險客戶於建立或新增業務往來關係前，應取得高階管理人員同意，
+    並採取合理措施瞭解客戶財富及資金來源。
+  </p>
+  {% if pending %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>送出時間</th><th>總分</th><th>提升原因</th><th></th></tr></thead>
+    <tbody>
+    {% for c in pending %}
+      <tr>
+        <td>{{ c.case_no }}</td>
+        <td>{{ c.agent.display_name }}</td>
+        <td>{{ c.submitted_at.strftime("%m/%d %H:%M") if c.submitted_at else "－" }}</td>
+        <td>{{ c.total_score }}</td>
+        <td>
+          {% if c.override_reasons|json_list %}
+            {% for r in c.override_reasons|json_list %}<div>{{ r }}</div>{% endfor %}
+          {% else %}<span class="muted">總分達門檻</span>{% endif %}
+        </td>
+        <td><a class="btn" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/review/{{ c.case_no }}">簽核</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">目前沒有待簽核案件。</p>{% endif %}
+</div>
+{% endblock %}

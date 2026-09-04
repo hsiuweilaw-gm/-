@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}案件查詢{% endblock %}
+{% block content %}
+<h1>案件查詢</h1>
+<form method="get" action="/compliance/cases" class="card">
+  <div class="filters">
+    <div><label for="q">案號／保單號碼／業務員</label>
+      <input type="text" id="q" name="q" value="{{ filters.q }}"></div>
+    <div><label for="level">風險等級</label>
+      <select id="level" name="level">
+        <option value="">全部</option>
+        <option value="high" {{ 'selected' if filters.level == 'high' }}>高風險</option>
+        <option value="general" {{ 'selected' if filters.level == 'general' }}>一般風險</option>
+      </select></div>
+    <div><label for="status">狀態</label>
+      <select id="status" name="status">
+        <option value="">全部</option>
+        {% for s in AssessmentStatus %}
+          <option value="{{ s.value }}" {{ 'selected' if filters.status == s.value }}>
+            {{ STATUS_LABELS[s] }}</option>
+        {% endfor %}
+      </select></div>
+    <div><label for="start">送出起日</label>
+      <input type="date" id="start" name="start" value="{{ filters.start or '' }}"></div>
+    <div><label for="end">送出迄日</label>
+      <input type="date" id="end" name="end" value="{{ filters.end or '' }}"></div>
+  </div>
+  <div class="btn-row" style="margin-top:.8rem">
+    <button type="submit">查詢</button>
+    <a class="btn secondary" href="/compliance/cases">清除條件</a>
+  </div>
+  <p class="muted">姓名與身分證字號加密儲存，無法直接以明文搜尋；請以案號、保單號碼或業務員姓名查詢。</p>
+</form>
+
+<div class="card">
+  <h2>查詢結果（{{ cases|length }} 件{% if cases|length == 500 %}，已達 500 筆上限{% endif %}）</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>送出</th><th>業務員</th><th>單位</th><th>要保人</th>
+      <th>身分證字號</th><th>保費</th><th>總分</th><th>等級</th><th>狀態</th><th></th></tr></thead>
+    <tbody>{% for c in cases %}
+      <tr {% if c.status == AssessmentStatus.BLOCKED %}class="flagged"{% endif %}>
+        <td>{{ c.case_no }}</td>
+        <td>{{ c.submitted_at.strftime("%Y-%m-%d") if c.submitted_at else "－" }}</td>
+        <td>{{ c.agent.display_name }}</td>
+        <td>{{ org_names.get(c.org_unit_id, "－") }}</td>
+        <td>{{ mask_name(decrypt_pii(c.holder_name_enc)) or "－" }}</td>
+        <td>{{ mask_id_number(decrypt_pii(c.holder_id_enc)) or "－" }}</td>
+        <td>{{ c.annual_premium|money }}</td>
+        <td>{{ c.total_score if c.total_score is not none else "－" }}</td>
+        <td>{% if c.risk_level %}<span class="tag {{ 'danger' if c.risk_level == RiskLevel.HIGH else 'ok' }}">
+          {{ LEVEL_LABELS[c.risk_level] }}</span>{% else %}－{% endif %}</td>
+        <td><span class="tag {{ STATUS_TONE[c.status] }}">{{ STATUS_LABELS[c.status] }}</span></td>
+        <td><a href="/compliance/cases/{{ c.case_no }}">檢視</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

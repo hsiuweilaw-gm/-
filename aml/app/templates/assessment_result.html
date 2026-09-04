@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ case.case_no }} — 評估結果{% endblock %}
+{% block content %}
+<h1>評估結果</h1>
+<p class="muted">案號 {{ case.case_no }}　·　送出時間
+  {{ case.submitted_at.strftime("%Y-%m-%d %H:%M") if case.submitted_at else "－" }}</p>
+
+{% if case.status == AssessmentStatus.BLOCKED %}
+  <div class="alert danger">
+    <strong>本案應婉拒建立業務關係（範本第四點），請勿續辦。</strong>
+    <ul>{% for r in case.blocked_reasons|json_list %}<li>{{ r }}</li>{% endfor %}</ul>
+    <p style="margin:.6rem 0 0">已自動通知洗錢防制專責主管列管。</p>
+  </div>
+{% elif case.status == AssessmentStatus.PENDING_APPROVAL %}
+  <div class="alert warn">
+    <strong>本案為高風險客戶，已送單位主管簽核。</strong>
+    須經主管同意始得建立業務關係；請併同提供客戶財富及資金來源之佐證。
+    {% if case.override_reasons|json_list %}
+      <ul>{% for r in case.override_reasons|json_list %}<li>{{ r }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+{% elif case.status == AssessmentStatus.APPROVED %}
+  <div class="alert info"><strong>單位主管已同意建立業務關係。</strong></div>
+{% elif case.status == AssessmentStatus.REJECTED %}
+  <div class="alert danger"><strong>單位主管不同意建立業務關係。</strong></div>
+{% else %}
+  <div class="alert info"><strong>本案為一般風險客戶，評估已完成。</strong></div>
+{% endif %}
+
+<div class="grid cols-3" style="margin-bottom:1rem">
+  <div class="stat {{ 'danger' if case.risk_level == RiskLevel.HIGH }}">
+    <div class="value">{{ case.total_score }}</div>
+    <div class="label">總分（門檻 {{ result.threshold }} 分）</div>
+  </div>
+  <div class="stat {{ 'danger' if case.risk_level == RiskLevel.HIGH }}">
+    <div class="value">{{ LEVEL_LABELS[case.risk_level] if case.risk_level else "－" }}</div>
+    <div class="label">客戶風險等級</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{ STATUS_LABELS[case.status] }}</div>
+    <div class="label">案件狀態</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>各類別得分</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>類別</th><th>得分</th><th>該類上限</th></tr></thead>
+    <tbody>
+    {% for c in result.category_scores %}
+      <tr><td>{{ c.label }}</td><td>{{ c.score }}</td><td>{{ c.max_score }}</td></tr>
+    {% endfor %}
+      <tr><th>合計</th><th>{{ result.total_score }}</th><th>{{ result.max_score }}</th></tr>
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>作答明細</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>類別</th><th>風險因子</th><th>作答</th><th>分數</th></tr></thead>
+    <tbody>
+    {% for category in questionnaire.categories %}
+      {% for factor in category.factors %}
+        {% set chosen = answers.get(factor.code) %}
+        {% set option = factor.option(chosen) if chosen else none %}
+        <tr>
+          <td class="muted">{{ category.label }}</td>
+          <td>{{ factor.label }}</td>
+          <td>{{ option.label if option else "－" }}</td>
+          <td>{{ option.score if option else "－" }}</td>
+        </tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="btn-row no-print">
+  <a class="btn secondary" href="/assessments">回我的案件</a>
+  <button class="secondary" onclick="window.print()">列印／存 PDF</button>
+</div>
+{% endblock %}

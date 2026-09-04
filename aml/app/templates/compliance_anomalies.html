@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}作答行為異常{% endblock %}
+{% block content %}
+<h1>作答行為異常訊號</h1>
+<form method="get" action="/compliance/anomalies" class="btn-row" style="margin-bottom:1rem">
+  <label for="days" style="margin:0">回溯天數</label>
+  <input type="number" id="days" name="days" value="{{ days }}" min="1" max="730" style="width:8rem">
+  <button type="submit">查詢</button>
+</form>
+
+<div class="alert info">
+  本頁為第二道防線之控制措施。系統依業務需要向業務員即時揭露分數與等級，
+  因此必須同時監控作答過程，以防為規避高風險客戶之強化盡職調查而調整作答。
+  所有訊號均取自唯增稽核軌跡。
+</div>
+
+<div class="card">
+  <h2>近 {{ days }} 天共 {{ signals|length }} 件</h2>
+  {% if signals %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>總分</th><th>等級</th>
+      <th>訊號數</th><th>訊號內容</th><th></th></tr></thead>
+    <tbody>{% for s in signals %}
+      <tr class="flagged">
+        <td>{{ s.case_no }}</td><td>{{ s.agent_name }}</td>
+        <td>{{ s.final_score }}</td><td>{{ s.final_level }}</td>
+        <td>{{ s.severity }}</td>
+        <td>{% for sig in s.signals %}<div>{{ sig }}</div>{% endfor %}</td>
+        <td><a href="/compliance/cases/{{ s.case_no }}">複核</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">此期間內無異常訊號。</p>{% endif %}
+</div>
+{% endblock %}

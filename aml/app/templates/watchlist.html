@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}名單管理{% endblock %}
+{% block content %}
+<h1>制裁、資恐與高風險名單管理</h1>
+<div class="alert info">
+  內控手冊 BIC06-03 八(八)：應持續留意國際組織發布之相關訊息，並以金管會函轉之缺失國家或地區、
+  聯合國／美國／歐盟經濟制裁名單、IMF 名單、美國愛國者法案 Section 311 名單、
+  國際透明組織貪腐印象指數等作為訂定高風險國家之依據。名單更新後應留存來源與更新日期。
+</div>
+
+<div class="grid cols-4" style="margin-bottom:1rem">
+  {% for key, label in list_types.items() %}
+    <div class="stat"><div class="value">{{ counts.get(key, 0) }}</div><div class="label">{{ label }}</div></div>
+  {% endfor %}
+</div>
+
+{% if can_edit %}
+<form method="post" action="/compliance/watchlist" class="card">
+  <h2>新增名單項目</h2>
+  <div class="grid cols-2">
+    <div class="field">
+      <label for="list_type">名單類別</label>
+      <select id="list_type" name="list_type" required>
+        {% for key, label in list_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="source">名單來源（如：金管會 114.11.20 函轉 FATF 公告）</label>
+      <input type="text" id="source" name="source">
+    </div>
+  </div>
+  <div class="field">
+    <label for="values">名單內容（每行一筆，可為姓名、法人名稱或國家／地區）</label>
+    <textarea id="values" name="values" required></textarea>
+  </div>
+  <button type="submit">新增</button>
+</form>
+{% endif %}
+
+<div class="card">
+  <h2>現行名單（{{ entries|length }} 筆）</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>類別</th><th>內容</th><th>來源</th><th>建立時間</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+    <tbody>{% for e in entries %}
+      <tr>
+        <td>{{ list_types.get(e.list_type, e.list_type) }}</td>
+        <td>{{ e.value }}</td>
+        <td class="muted">{{ e.source or "－" }}</td>
+        <td class="muted">{{ e.created_at.strftime("%Y-%m-%d") }}</td>
+        {% if can_edit %}
+        <td><form method="post" action="/compliance/watchlist/{{ e.id }}/remove">
+          <button class="secondary" style="padding:.2rem .6rem;font-size:.8rem">停用</button></form></td>
+        {% endif %}
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="muted">停用之名單不會刪除，以保留曾經比對之依據。</p>
+</div>
+{% endblock %}

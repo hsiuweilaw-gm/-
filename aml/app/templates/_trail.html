@@ -1,0 +1,28 @@
+{# 稽核軌跡。唯增紀錄，系統不提供任何修改或刪除介面。 #}
+<details {% if open_trail %}open{% endif %}>
+  <summary>稽核軌跡（{{ trail|length }} 筆）</summary>
+  <ol class="trail" style="margin-top:.6rem">
+  {% for e in trail %}
+    {% set d = parse_detail(e) if parse_detail else {} %}
+    <li>
+      <code>{{ e.at.strftime("%Y-%m-%d %H:%M:%S") }}</code>
+      {{ e.actor_name or "系統" }}　<strong>{{ e.action }}</strong>
+      {% if e.action == "assessment.answer" %}
+        — {{ d.get("factor_label", d.get("factor")) }}：
+        {% if d.get("from") %}{{ d.get("from") }}（{{ d.get("from_score") }} 分）→{% endif %}
+        {{ d.get("to") }}（{{ d.get("to_score") }} 分）
+        <span class="muted">，總分 {{ d.get("total_after") }}</span>
+      {% elif e.action == "assessment.checks" %}
+        — {{ d.get("group") }}：{{ d.get("to")|join("、") if d.get("to") else "（清空）" }}
+      {% elif e.action == "assessment.profile" %}
+        — 更新欄位：{{ d.get("fields", [])|join("、") }}
+      {% elif e.action == "assessment.submit" %}
+        — 總分 {{ d.get("total_score") }}，等級 {{ d.get("level") }}，狀態 {{ d.get("status") }}
+      {% elif d %}
+        — {{ d }}
+      {% endif %}
+      {% if e.ip %}<span class="muted">（{{ e.ip }}）</span>{% endif %}
+    </li>
+  {% endfor %}
+  </ol>
+</details>

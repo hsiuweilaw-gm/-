@@ -1,0 +1,37 @@
+# 地端／私有雲部署。資料庫與應用程式皆在公司內部網路，不對外開放。
+# 對外服務請於前方置放反向代理（Nginx / Caddy）並啟用 HTTPS 與存取來源限制。
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aml
+      POSTGRES_USER: aml
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請於 .env 設定 POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aml -d aml"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # 資料庫不對主機開放連接埠，僅供內部網路存取。
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      AML_DATABASE_URL: postgresql+psycopg://aml:${POSTGRES_PASSWORD}@db:5432/aml
+      AML_SECRET_KEY: ${AML_SECRET_KEY:?請於 .env 設定 AML_SECRET_KEY}
+      AML_PII_KEY: ${AML_PII_KEY:?請於 .env 設定 AML_PII_KEY}
+      AML_COOKIE_SECURE: ${AML_COOKIE_SECURE:-true}
+      AML_BOOTSTRAP_ADMIN_USERNAME: ${AML_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      AML_BOOTSTRAP_ADMIN_PASSWORD: ${AML_BOOTSTRAP_ADMIN_PASSWORD:-}
+    ports:
+      - "127.0.0.1:8000:8000"   # 僅綁定本機，由反向代理轉入
+
+volumes:
+  db-data:

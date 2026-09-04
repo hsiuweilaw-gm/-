@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}我的評估案件{% endblock %}
+{% block content %}
+<h1>我的評估案件</h1>
+<div class="btn-row" style="margin-bottom:1rem">
+  <form method="post" action="/assessments/new"><button type="submit">＋ 新增客戶風險評估</button></form>
+  {% if drafts %}<span class="muted">尚有 {{ drafts|length }} 件填寫中</span>{% endif %}
+</div>
+<div class="alert info">
+  評估表應於招攬時與客戶當面完成。確認客戶風險等級為<strong>高風險</strong>時，
+  應立即通知單位主管備查及列管；系統會自動送交主管簽核。
+</div>
+{% if cases %}
+<div class="card table-wrap">
+  <table>
+    <thead><tr>
+      <th>案號</th><th>要保人</th><th>保險公司</th><th>總分</th>
+      <th>風險等級</th><th>狀態</th><th>最後更新</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for c in cases %}
+      <tr {% if c.status == AssessmentStatus.BLOCKED %}class="flagged"{% endif %}>
+        <td><a href="/assessments/{{ c.case_no }}">{{ c.case_no }}</a></td>
+        <td>{{ holder_names.get(c.id) or "－" }}</td>
+        <td>{{ c.insurer_name or "－" }}</td>
+        <td>{{ c.total_score if c.total_score is not none else "－" }}</td>
+        <td>
+          {% if c.risk_level %}
+            <span class="tag {{ 'danger' if c.risk_level == RiskLevel.HIGH else 'ok' }}">
+              {{ LEVEL_LABELS[c.risk_level] }}</span>
+          {% else %}－{% endif %}
+        </td>
+        <td><span class="tag {{ STATUS_TONE[c.status] }}">{{ STATUS_LABELS[c.status] }}</span></td>
+        <td class="muted">{{ c.updated_at.strftime("%m/%d %H:%M") }}</td>
+        <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/assessments/{{ c.case_no }}">
+          {{ "繼續填寫" if c.status == AssessmentStatus.DRAFT else "檢視" }}</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card"><p class="muted">目前沒有評估案件。點選上方按鈕新增。</p></div>
+{% endif %}
+{% endblock %}

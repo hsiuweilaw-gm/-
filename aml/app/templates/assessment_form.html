@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}{{ case.case_no }} — 客戶風險辨識評估{% endblock %}
+{% block content %}
+<h1>客戶風險辨識標準評估檢核表（壽險）</h1>
+<p class="muted">
+  案號 {{ case.case_no }}　·　{{ questionnaire.name }} v{{ questionnaire.version }}
+  　·　狀態 <span class="tag {{ STATUS_TONE[case.status] }}">{{ STATUS_LABELS[case.status] }}</span>
+</p>
+
+{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+{% if not editable %}
+  <div class="alert info">
+    本案件已送出，內容已鎖定不可修改。如需更正請聯絡洗錢防制專責人員。
+  </div>
+{% endif %}
+
+{% if result.blocked %}
+<div id="score-notice" class="alert danger">
+  <strong>本案應婉拒建立業務關係，請立即通知洗錢防制專責主管。</strong>
+  <ul>{% for r in result.blocked_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+</div>
+{% elif result.level == 'high' %}
+<div id="score-notice" class="alert warn">
+  <strong>本案為高風險客戶，送出後須經單位主管同意始得建立業務關係，並應瞭解客戶財富及資金來源。</strong>
+  {% if result.override_reasons %}
+  <ul>{% for r in result.override_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+  {% endif %}
+</div>
+{% else %}
+<div id="score-notice"></div>
+{% endif %}
+
+<div id="assessment" data-case-no="{{ case.case_no }}" data-editable="{{ '1' if editable else '0' }}">
+
+  <section class="card">
+    <h2>客戶基本資料</h2>
+    <div id="profile" data-autosave-profile class="grid cols-2">
+      <div class="field">
+        <label for="holder_name">要保人姓名／名稱</label>
+        <input type="text" id="holder_name" name="holder_name" value="{{ holder_name or '' }}"
+               {{ 'disabled' if not editable }} autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="holder_id">要保人身分證字號／統一編號</label>
+        <input type="text" id="holder_id" name="holder_id" value="{{ holder_id or '' }}"
+               {{ 'disabled' if not editable }} autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="insured_name">被保險人姓名</label>
+        <input type="text" id="insured_name" name="insured_name" value="{{ insured_name or '' }}"
+               {{ 'disabled' if not editable }} autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="beneficiary_name">受益人姓名</label>
+        <input type="text" id="beneficiary_name" name="beneficiary_name"
+               value="{{ beneficiary_name or '' }}" {{ 'disabled' if not editable }} autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="insurer_name">保險公司</label>
+        <input type="text" id="insurer_name" name="insurer_name" value="{{ case.insurer_name or '' }}"
+               {{ 'disabled' if not editable }} autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="policy_no">保單號碼／要保書號碼</label>
+        <input type="text" id="policy_no" name="policy_no" value="{{ case.policy_no or '' }}"
+               {{ 'disabled' if not editable }} autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="annual_premium">本次保費（新臺幣元）</label>
+        <input type="text" inputmode="numeric" id="annual_premium" name="annual_premium"
+               value="{{ case.annual_premium|int if case.annual_premium else '' }}"
+               {{ 'disabled' if not editable }} autocomplete="off">
+      </div>
+    </div>
+    <p class="muted">
+      個資欄位加密儲存，僅洗錢防制專責人員與內部稽核得檢視明文；其他人員一律遮罩顯示。
+    </p>
+  </section>
+
+  <section class="card" style="border-color:#f0b4b4">
+    <h2 style="color:var(--danger)">一、應婉拒建立業務關係之情形（範本第四點）</h2>
+    <p class="muted">
+      以下任一情形存在時，<strong>不得建立業務關係</strong>。勾選後系統將立即擋件並通知洗錢防制專責主管。
+    </p>
+    <div class="checklist" data-check-group="refusal">
+      {% for c in questionnaire.refusal_checks %}
+        <label>
+          <input type="checkbox" value="{{ c.code }}"
+                 {{ 'checked' if c.code in checks.get('refusal', []) }}
+                 {{ 'disabled' if not editable }}>
+          <span>{{ c.label }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>二、風險因子評分</h2>
+    <p class="muted">共 {{ questionnaire.factors|length }} 題，總分區間
+      {{ questionnaire.min_score }}～{{ questionnaire.max_score }} 分；
+      {{ questionnaire.high_risk_threshold }} 分以上（含）為高風險。</p>
+    {% for category in questionnaire.categories %}
+      <h3>{{ category.label }}</h3>
+      {% for factor in category.factors %}
+        <div class="factor {{ 'answered' if answers.get(factor.code) }}">
+          <div class="q">{{ factor.label }}</div>
+          <div class="cat">{{ category.label }}</div>
+          <div class="opts">
+            {% for option in factor.options %}
+              {% set chosen = answers.get(factor.code) == option.code %}
+              <label class="opt {{ 'selected' if chosen }}">
+                <input type="radio" name="{{ factor.code }}" value="{{ option.code }}"
+                       {{ 'checked' if chosen }} {{ 'disabled' if not editable }}>
+                <span class="txt">{{ option.label }}</span>
+                <span class="pt">{{ option.score }} 分</span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    {% endfor %}
+  </section>
+
+  <section class="card" style="border-color:#edd3a1">
+    <h2 style="color:var(--warn)">三、強制高風險條件（範本第五點）</h2>
+    <p class="muted">命中任一項者，不論總分多寡一律列為高風險，並應採取強化確認客戶身分措施。</p>
+    <div class="checklist" data-check-group="mandatory">
+      {% for c in questionnaire.mandatory_high_risk %}
+        <label>
+          <input type="checkbox" value="{{ c.code }}"
+                 {{ 'checked' if c.code in checks.get('mandatory', []) }}
+                 {{ 'disabled' if not editable }}>
+          <span>{{ c.label }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card" style="border-color:#edd3a1">
+    <h2 style="color:var(--warn)">四、疑似洗錢、資恐或資助武擴交易態樣（範本附錄）</h2>
+    <p class="muted">
+      勾選任一項者一律列為高風險，並由洗錢防制專責主管核定後，於 2 個營業日內向法務部調查局申報，
+      <strong>不論交易金額多寡</strong>（範本第九點）。
+    </p>
+    <div class="checklist" data-check-group="suspicious">
+      {% for c in questionnaire.suspicious_patterns %}
+        <label>
+          <input type="checkbox" value="{{ c.code }}"
+                 {{ 'checked' if c.code in checks.get('suspicious', []) }}
+                 {{ 'disabled' if not editable }}>
+          <span>{{ c.label }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>五、強化措施紀錄（高風險案件必填）</h2>
+    <p class="muted">
+      高風險客戶應採取合理措施瞭解客戶財富及資金來源；資金來源係指產生該資金之實質來源
+      （如薪資、投資收益、買賣不動產等）。主管簽核同意前，本二欄不得留白。
+    </p>
+    <div id="profile-edd" data-autosave-profile>
+      <div class="field">
+        <label for="wealth_source">客戶財富來源</label>
+        <textarea id="wealth_source" name="wealth_source"
+                  {{ 'disabled' if not editable }}>{{ case.wealth_source or '' }}</textarea>
+      </div>
+      <div class="field">
+        <label for="fund_source_detail">本次保費資金之實質來源</label>
+        <textarea id="fund_source_detail" name="fund_source_detail"
+                  {{ 'disabled' if not editable }}>{{ case.fund_source_detail or '' }}</textarea>
+      </div>
+    </div>
+  </section>
+
+  {% if editable %}
+  <form method="post" action="/assessments/{{ case.case_no }}/submit" class="card">
+    <div class="btn-row">
+      <button type="submit" id="submit-btn" {{ 'disabled' if not result.complete }}>送出評估</button>
+      <span class="muted" id="missing-hint">
+        {% if not result.complete %}尚有 {{ result.missing_factors|length }} 題未填答{% endif %}
+      </span>
+    </div>
+    <p class="muted">
+      送出即完成業務員簽署，代表本表所填各項係經確認客戶身分後據實填列。
+      送出後不可修改，所有作答歷程均已留存稽核軌跡。
+    </p>
+  </form>
+  {% else %}
+  <div class="btn-row"><a class="btn secondary" href="/assessments/{{ case.case_no }}/result">檢視評估結果</a></div>
+  {% endif %}
+</div>
+
+<div class="scorebar {{ 'high' if result.level == 'high' }} {{ 'blocked' if result.blocked }}"
+     id="scorebar">
+  <div>
+    <div class="muted" style="font-size:.75rem">目前總分</div>
+    <div class="score" id="score-value">{{ result.total_score }}</div>
+  </div>
+  <div>
+    <div class="muted" style="font-size:.75rem">風險等級</div>
+    <div class="level" id="score-level">{{ result.level_label }}</div>
+  </div>
+  <div class="progress">
+    <div class="muted" style="font-size:.75rem">
+      已填 <span id="score-count">{{ result.answered }} / {{ result.total_factors }}</span>
+      　門檻 {{ result.threshold }} 分
+    </div>
+    <div class="bar"><span id="score-progress"
+      style="width:{{ ((result.total_score - result.min_score) / (result.max_score - result.min_score) * 100)|round(1) }}%"></span></div>
+  </div>
+  <div class="savehint" id="savehint">{{ '已儲存' if editable else '唯讀' }}</div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="/static/app.js"></script>{% endblock %}

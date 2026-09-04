@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}系統管理{% endblock %}
+{% block content %}
+<h1>系統管理</h1>
+
+{% if new_credential %}
+<div class="alert warn">
+  <strong>初始密碼僅顯示這一次，請立即交付本人並要求首次登入變更：</strong><br>
+  帳號 <code>{{ new_credential.username }}</code>　
+  密碼 <code style="font-size:1.05rem">{{ new_credential.password }}</code>
+</div>
+{% endif %}
+
+<div class="grid cols-2">
+  <form method="post" action="/admin/users" class="card">
+    <h2>新增帳號</h2>
+    <div class="field"><label for="username">帳號</label>
+      <input type="text" id="username" name="username" required></div>
+    <div class="field"><label for="display_name">姓名</label>
+      <input type="text" id="display_name" name="display_name" required></div>
+    <div class="field"><label for="role">角色</label>
+      <select id="role" name="role" required>
+        {% for r in roles %}<option value="{{ r.value }}">{{ ROLE_LABELS[r] }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="org_unit_id">所屬單位</label>
+      <select id="org_unit_id" name="org_unit_id">
+        <option value="">－未指定－</option>
+        {% for u in units %}<option value="{{ u.id }}">{{ u.code }} {{ u.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="agent_license_no">業務員登錄字號</label>
+      <input type="text" id="agent_license_no" name="agent_license_no"></div>
+    <button type="submit">建立帳號</button>
+  </form>
+
+  <form method="post" action="/admin/org-units" class="card">
+    <h2>新增組織單位</h2>
+    <p class="muted">通訊處／營運中心。主管僅能檢視與簽核所屬單位之案件。</p>
+    <div class="field"><label for="code">單位代碼</label>
+      <input type="text" id="code" name="code" required></div>
+    <div class="field"><label for="name">單位名稱</label>
+      <input type="text" id="name" name="name" required></div>
+    <button type="submit">建立單位</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>帳號一覽（{{ users|length }} 筆）</h2>
+  <p class="muted">
+    範本第十三點第五款：業務人員應每年安排適當內容及時數之防制洗錢及打擊資恐在職訓練。
+    完訓日超過一年者以紅字標示。
+  </p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>單位</th><th>登錄字號</th>
+      <th>洗防訓練完訓日</th><th>最後登入</th><th>狀態</th><th>操作</th></tr></thead>
+    <tbody>{% for u in users %}
+      {% set stale = not u.aml_training_date or (today - u.aml_training_date).days > 365 %}
+      <tr {% if stale and u.role == Role.AGENT and u.active %}class="flagged"{% endif %}>
+        <td>{{ u.username }}</td>
+        <td>{{ u.display_name }}</td>
+        <td>{{ ROLE_LABELS[u.role] }}</td>
+        <td>{{ unit_names.get(u.org_unit_id, "－") }}</td>
+        <td>{{ u.agent_license_no or "－" }}</td>
+        <td>
+          {{ u.aml_training_date or "未登錄" }}
+          <form method="post" action="/admin/users/{{ u.id }}/training" class="btn-row"
+                style="margin-top:.2rem">
+            <input type="date" name="training_date" required style="width:9rem;padding:.2rem">
+            <button class="secondary" style="padding:.2rem .5rem;font-size:.75rem">登錄</button>
+          </form>
+        </td>
+        <td class="muted">{{ u.last_login_at.strftime("%Y-%m-%d") if u.last_login_at else "－" }}</td>
+        <td><span class="tag {{ 'ok' if u.active else 'muted' }}">{{ "啟用" if u.active else "停用" }}</span></td>
+        <td>
+          <div class="btn-row">
+            <form method="post" action="/admin/users/{{ u.id }}/toggle">
+              <button class="secondary" style="padding:.2rem .5rem;font-size:.75rem">
+                {{ "停用" if u.active else "啟用" }}</button></form>
+            <form method="post" action="/admin/users/{{ u.id }}/reset-password">
+              <button class="secondary" style="padding:.2rem .5rem;font-size:.75rem">重設密碼</button></form>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

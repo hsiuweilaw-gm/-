@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = [
+  "B008",   # FastAPI 的 Depends() 就是設計成放在預設值
+  "UP042",  # str + Enum 為刻意選擇：SQLAlchemy Enum 欄位與樣板比對均依賴其字串行為，
+            # 改用 StrEnum 會變動既有資料的序列化結果
+]
