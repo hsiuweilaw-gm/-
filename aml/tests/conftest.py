@@ -13,7 +13,7 @@ os.environ["AML_SECRET_KEY"] = "test-secret-key-not-for-production"
 os.environ["AML_PII_KEY"] = base64.urlsafe_b64encode(b"0" * 32).decode()
 os.environ["AML_BOOTSTRAP_ADMIN_PASSWORD"] = ""
 
-from app.db import SessionLocal, engine  # noqa: E402
+from app.db import SessionLocal, engine, stamp_head  # noqa: E402
 from app.models import Base, OrgUnit, Role, User  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
@@ -22,6 +22,9 @@ from app.security import hash_password  # noqa: E402
 def db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    # 補上版本標記，否則應用程式的啟動檢查會擋下測試用資料庫。
+    # 遷移本身與模型是否一致，由 tests/test_migrations.py 驗證。
+    stamp_head()
     session = SessionLocal()
     try:
         yield session

@@ -8,7 +8,7 @@ from __future__ import annotations
 import random
 import sys
 
-from app.db import SessionLocal, init_db
+from app.db import SessionLocal, init_db, stamp_head
 from app.models import OrgUnit, Role, User
 from app.scoring.engine import load_questionnaire
 from app.security import hash_password
@@ -37,6 +37,7 @@ WATCHLIST = [
 
 def main() -> None:
     init_db()
+    stamp_head()
     db = SessionLocal()
 
     if db.query(User).count():

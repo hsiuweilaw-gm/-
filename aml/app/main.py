@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
-from .db import SessionLocal, init_db
+from .db import SessionLocal, assert_schema_current
 from .deps import current_user_optional
 from .models import Role, User
 from .routers import admin, api, assessments, auth, compliance, reports, review
@@ -21,7 +21,8 @@ log = logging.getLogger("aml")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    init_db()
+    # 不自動建表：結構一律由 Alembic 遷移管理，此處只驗證是否為最新版本。
+    assert_schema_current()
     bootstrap_admin()
     yield
 

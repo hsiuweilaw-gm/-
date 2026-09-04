@@ -141,6 +141,26 @@ docker compose up -d --build
 > ⚠️ **`AML_PII_KEY` 遺失，資料庫內已加密的姓名與身分證字號將永久無法還原。**
 > 請依內控手冊 BIC05-02 之金鑰保管程序離線保存，並指定保管人與備援保管人。
 
+### 資料庫結構變更（Alembic）
+
+結構一律以遷移演進，**不使用 `create_all`**——它只會建立缺少的資料表，不會修改既有資料表，
+上線後第一次新增欄位就會失效。案件紀錄須保存五年（範本第六點），資料庫不能重建。
+
+```bash
+alembic upgrade head                              # 套用到最新（部署時自動執行）
+alembic revision --autogenerate -m "變更說明"      # 改完模型後產生遷移
+alembic downgrade -1                              # 退回上一版
+alembic current                                   # 查目前版本
+```
+
+改完 `app/models.py` 一定要產生對應的遷移。忘記的話 `test_migrations.py` 會失敗，
+CI 就會擋下來——這比在正式環境遇到「程式要的欄位資料庫沒有」好得多。
+
+應用程式啟動時會驗證資料庫是否為最新版本，**落後或未初始化即拒絕啟動**並指出該執行的指令。
+容器的 `docker-entrypoint.sh` 會先跑 `alembic upgrade head` 再啟動服務。
+（目前為單一應用容器，順序執行是安全的；若日後水平擴充，應改為獨立的遷移工作，
+避免多個 worker 同時遷移互相競爭。）
+
 ### 本機開發
 
 ```bash
@@ -148,9 +168,10 @@ pip install -r requirements-dev.txt
 export AML_DATABASE_URL="sqlite:///./dev.db"
 export AML_SECRET_KEY="dev-secret"
 export AML_PII_KEY="$(python -c 'import os,base64;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+alembic upgrade head                 # 建立資料庫結構
 python -m scripts.seed_demo          # 選用：建立 18 個示範帳號與 60 件案件
 uvicorn app.main:app --reload
-pytest                               # 56 項測試
+pytest                               # 113 項測試
 ```
 
 ## 報表

@@ -12,7 +12,7 @@ import argparse
 import pathlib
 import sys
 
-from app.db import SessionLocal, init_db
+from app.db import SessionLocal, assert_schema_current
 from app.services import sanctions_import
 
 
@@ -29,7 +29,7 @@ def main() -> None:
     if not path.exists():
         sys.exit(f"找不到檔案：{path}")
 
-    init_db()
+    assert_schema_current()
     db = SessionLocal()
     if path.suffix.lower() in (".xlsx", ".xlsm"):
         rows = sanctions_import.rows_from_xlsx(path.read_bytes(), args.sheet)
