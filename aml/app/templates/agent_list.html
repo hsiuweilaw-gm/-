@@ -14,8 +14,7 @@
 <div class="card table-wrap">
   <table>
     <thead><tr>
-      <th>案號</th><th>要保人</th><th>保險公司</th><th>總分</th>
-      <th>風險等級</th><th>狀態</th><th>最後更新</th><th></th>
+      <th>案號</th><th>要保人</th><th>保險公司</th><th>狀態</th><th>最後更新</th><th></th>
     </tr></thead>
     <tbody>
     {% for c in cases %}
@@ -23,13 +22,6 @@
         <td><a href="/assessments/{{ c.case_no }}">{{ c.case_no }}</a></td>
         <td>{{ holder_names.get(c.id) or "－" }}</td>
         <td>{{ c.insurer_name or "－" }}</td>
-        <td>{{ c.total_score if c.total_score is not none else "－" }}</td>
-        <td>
-          {% if c.risk_level %}
-            <span class="tag {{ 'danger' if c.risk_level == RiskLevel.HIGH else 'ok' }}">
-              {{ LEVEL_LABELS[c.risk_level] }}</span>
-          {% else %}－{% endif %}
-        </td>
         <td><span class="tag {{ STATUS_TONE[c.status] }}">{{ STATUS_LABELS[c.status] }}</span></td>
         <td class="muted">{{ c.updated_at.strftime("%m/%d %H:%M") }}</td>
         <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"

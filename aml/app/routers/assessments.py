@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import (
     can_edit_assessment,
+    can_see_score,
     can_unmask_pii,
     can_view_assessment,
     current_user,
@@ -47,6 +48,8 @@ def case_context(db: Session, case: Assessment, user: User) -> dict:
         "checks": svc.stored_checks(case),
         "result": result,
         "watchlist_hits": watchlist_hits,
+        # 業務員不得知悉分數與等級；樣板一律以此旗標決定是否呈現。
+        "show_score": can_see_score(user),
         "holder_name": holder_name if unmask else mask_name(holder_name),
         "holder_id": holder_id if unmask else mask_id_number(holder_id),
         "insured_name": decrypt_pii(case.insured_name_enc) if unmask else

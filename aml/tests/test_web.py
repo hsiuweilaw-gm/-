@@ -62,7 +62,6 @@ def test_agent_can_create_and_autosave(client, agent, q):
                       json={"factor": "product_type", "option": "oiu"})
     assert res.status_code == 200
     body = res.json()
-    assert body["total_score"] == 5
     assert body["complete"] is False
     assert body["answered"] == 1 and body["total_factors"] == 10
 
@@ -76,17 +75,108 @@ def test_autosave_rejects_unknown_option(client, agent):
     assert res.status_code == 422
 
 
-def test_agent_sees_score_and_level_on_the_form(client, agent, q, db):
-    """需求明訂：業務員必須看得到客戶評分。"""
+def fill_high_risk(db, case, agent, q):
+    high = {"geo_domicile": "overseas", "cust_occupation": "tier1", "cust_source": "inbound",
+            "cust_amount": "over_5m", "product_type": "oiu", "txn_channel": "online",
+            "txn_fund_source": "borrowed", "txn_payer": "third_party"}
+    for factor in q.factors:
+        svc.save_answer(db, case, agent, factor.code,
+                        high.get(factor.code) or min(factor.options, key=lambda o: o.score).code)
+
+
+def test_agent_never_sees_score_or_risk_level(client, agent, q, db):
+    """公司政策：業務員不得知悉客戶評分與風險等級，避免為規避強化盡職調查而調整作答。"""
+    login(client, "agent01")
+    case = svc.create_draft(db, agent)
+    fill_high_risk(db, case, agent, q)
+    assert svc.evaluate(case).total_score >= 30
+
+    res = client.get(f"/assessments/{case.case_no}")
+    assert res.status_code == 200
+    # 不得揭露本案的分數與等級
+    assert "目前總分" not in res.text
+    assert "風險等級" not in res.text
+    assert "本案為高風險" not in res.text
+    assert "門檻" not in res.text
+    # 選項旁不得標示配分——業務員把 10 個數字加起來就還原了總分
+    options_block = res.text.split("風險因子評分")[1].split("應加強確認客戶身分")[0]
+    assert " 分</span>" not in options_block
+    # 改以填答進度呈現，並在跨越門檻時警示照會主管
+    assert "填答進度" in res.text
+    assert "須照會單位主管確認後" in res.text
+
+
+def test_agent_api_response_carries_no_score(client, agent, q, db):
+    login(client, "agent01")
+    case = svc.create_draft(db, agent)
+    res = client.post(f"/api/assessments/{case.case_no}/answer",
+                      json={"factor": "product_type", "option": "oiu"})
+    body = res.json()
+    for leaked in ("total_score", "level", "level_label", "threshold", "category_scores",
+                   "override_reasons"):
+        assert leaked not in body, f"回應不得帶 {leaked}"
+    assert body["answered"] == 1 and body["total_factors"] == 10
+
+
+def test_supervisor_api_response_does_carry_score(client, db, agent, supervisor, q):
+    """主管需要分數才能判斷是否同意，故對第一道防線督導以上揭露。"""
+    case = svc.create_draft(db, agent)
+    fill_high_risk(db, case, agent, q)
+    login(client, "sup01")
+    body = client.get(f"/api/assessments/{case.case_no}/status").json()
+    assert body["total_score"] >= 30
+    assert body["level"] == "high"
+
+
+def test_agent_result_page_hides_score(client, agent, q, db):
     login(client, "agent01")
     case = svc.create_draft(db, agent)
     for factor in q.factors:
         svc.save_answer(db, case, agent, factor.code,
-                        max(factor.options, key=lambda o: o.score).code)
-    res = client.get(f"/assessments/{case.case_no}")
+                        min(factor.options, key=lambda o: o.score).code)
+    client.post(f"/assessments/{case.case_no}/submit", follow_redirects=False)
+    res = client.get(f"/assessments/{case.case_no}/result")
     assert res.status_code == 200
-    assert "48" in res.text, "總分應顯示於畫面"
-    assert "高風險" in res.text
+    assert "總分" not in res.text
+    assert "各類別得分" not in res.text
+    assert "評估已完成" in res.text
+
+
+def test_high_risk_cannot_be_submitted_before_consulting_supervisor(client, agent, q, db):
+    """業務員看不到分數，但跨越門檻時系統警示；須完成照會登錄才能送出。"""
+    login(client, "agent01")
+    case = svc.create_draft(db, agent)
+    fill_high_risk(db, case, agent, q)
+
+    res = client.post(f"/assessments/{case.case_no}/submit")
+    assert res.status_code == 400
+    assert "須先照會單位主管" in res.text
+    db.refresh(case)
+    assert case.status == AssessmentStatus.DRAFT
+
+    res = client.post(f"/api/assessments/{case.case_no}/consult",
+                      json={"supervisor_name": "台北通訊處　王經理"})
+    assert res.status_code == 200
+    assert res.json()["consulted"] is True
+
+    res = client.post(f"/assessments/{case.case_no}/submit", follow_redirects=False)
+    assert res.status_code == 303
+    db.refresh(case)
+    assert case.status == AssessmentStatus.PENDING_APPROVAL
+    assert case.consulted_name == "台北通訊處　王經理"
+    assert case.consulted_at is not None
+
+
+def test_general_risk_case_needs_no_consultation(client, agent, q, db):
+    login(client, "agent01")
+    case = svc.create_draft(db, agent)
+    for factor in q.factors:
+        svc.save_answer(db, case, agent, factor.code,
+                        min(factor.options, key=lambda o: o.score).code)
+    body = client.get(f"/api/assessments/{case.case_no}/status").json()
+    assert body["needs_consultation"] is False
+    res = client.post(f"/assessments/{case.case_no}/submit", follow_redirects=False)
+    assert res.status_code == 303
 
 
 def test_blocked_case_shows_refusal_notice_to_agent(client, agent, q, db):
@@ -144,6 +234,7 @@ def test_supervisor_approval_requires_fund_source(client, db, agent, supervisor,
     for factor in q.factors:
         svc.save_answer(db, case, agent, factor.code,
                         high.get(factor.code) or min(factor.options, key=lambda o: o.score).code)
+    svc.record_consultation(db, case, agent, "王經理")
     svc.submit(db, case, agent)
     assert case.status == AssessmentStatus.PENDING_APPROVAL
 
@@ -176,6 +267,7 @@ def test_supervisor_only_sees_own_org_unit(client, db, agent, supervisor, org, q
     for factor in q.factors:
         svc.save_answer(db, case, outsider, factor.code,
                         max(factor.options, key=lambda o: o.score).code)
+    svc.record_consultation(db, case, outsider, "高雄通訊處　李經理")
     svc.submit(db, case, outsider)
 
     login(client, "sup01")

@@ -118,6 +118,7 @@ def test_high_risk_outcome_is_not_flagged_for_downgrades(db, agent, q):
     svc.save_checks(db, case, agent, "mandatory", ["pep"])
     svc.save_answer(db, case, agent, "product_type", "oiu")
     svc.save_answer(db, case, agent, "product_type", "health_pa")
+    svc.record_consultation(db, case, agent, "王經理")
     svc.submit(db, case, agent)
     signals = anomalies.analyze_case(paced_trail(db, case.case_no), case,
                                      q.high_risk_threshold)

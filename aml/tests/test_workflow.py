@@ -72,17 +72,24 @@ def test_general_risk_case_completes_without_approval(db, agent, q):
     assert case.retain_until is not None, "須設定紀錄保存期限（範本第六點）"
 
 
-def test_high_risk_case_requires_supervisor_approval(db, agent, q):
+def test_high_risk_case_requires_consultation_then_approval(db, agent, q):
+    """業務員看不到分數，但跨越門檻時系統警示；須先照會主管才能送出，再經主管同意。"""
     case = svc.create_draft(db, agent)
     answer_all(db, case, agent, q, overrides={
         "geo_domicile": "overseas", "cust_occupation": "tier1", "cust_source": "inbound",
         "cust_amount": "over_5m", "product_type": "oiu", "txn_channel": "online",
         "txn_fund_source": "borrowed", "txn_payer": "third_party",
     })
+    with pytest.raises(ValueError, match="照會單位主管"):
+        svc.submit(db, case, agent)
+    assert case.status == AssessmentStatus.DRAFT
+
+    svc.record_consultation(db, case, agent, "王經理")
     result = svc.submit(db, case, agent)
     assert result.total_score >= 30
     assert case.status == AssessmentStatus.PENDING_APPROVAL, \
         "高風險案件不得逕行完成，須經主管同意（範本第五點第一款第一目）"
+    assert case.consulted_name == "王經理"
 
 
 def test_sanction_hit_blocks_the_case(db, agent, q):
@@ -99,6 +106,7 @@ def test_pep_case_is_high_risk_even_at_minimum_score(db, agent, q):
     case = svc.create_draft(db, agent)
     answer_all(db, case, agent, q)
     svc.save_checks(db, case, agent, "mandatory", ["pep"])
+    svc.record_consultation(db, case, agent, "王經理")
     svc.submit(db, case, agent)
     assert case.total_score == 10
     assert case.risk_level == RiskLevel.HIGH

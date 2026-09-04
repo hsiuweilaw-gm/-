@@ -87,6 +87,15 @@ def can_edit_assessment(user: User, assessment: Assessment) -> bool:
     return assessment.agent_id == user.id and assessment.status == AssessmentStatus.DRAFT
 
 
+def can_see_score(user: User) -> bool:
+    """風險分數與等級是否對此角色揭露。
+
+    公司政策：業務人員不得知悉客戶評分與風險等級，避免為規避高風險客戶之
+    強化盡職調查而調整作答。業務員僅在跨越門檻時收到「須照會主管」之警示。
+    """
+    return user.role in (Role.SUPERVISOR, Role.COMPLIANCE, Role.AUDITOR, Role.ADMIN)
+
+
 def can_unmask_pii(user: User) -> bool:
     """明文個資僅第二、三道防線與案件承辦人可見；其餘一律遮罩。"""
     return user.role in (Role.COMPLIANCE, Role.AUDITOR, Role.ADMIN)

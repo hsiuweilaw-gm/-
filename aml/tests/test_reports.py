@@ -26,6 +26,9 @@ def make_case(db, agent, q, overrides, premium=None):
         svc.save_answer(db, case, agent, factor.code, option)
     if premium is not None:
         svc.save_profile(db, case, agent, {"annual_premium": str(premium)})
+    # 高風險案件須先照會主管才能送出（業務員看不到分數，由系統警示）
+    if svc.evaluate(case).level == "high":
+        svc.record_consultation(db, case, agent, "王經理")
     svc.submit(db, case, agent)
     return case
 

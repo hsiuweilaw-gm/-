@@ -135,6 +135,12 @@ class Assessment(Base):
     override_reasons: Mapped[str | None] = mapped_column(Text)  # JSON list
     blocked_reasons: Mapped[str | None] = mapped_column(Text)   # JSON list
 
+    # 高風險案件之照會紀錄。業務員看不到分數，但跨越門檻時系統會警示，
+    # 並要求其確認已照會單位主管後始得送出（內控手冊：確認為高風險時應立即通知主管備查及列管）。
+    consulted_supervisor: Mapped[bool] = mapped_column(Boolean, default=False)
+    consulted_name: Mapped[str | None] = mapped_column(String(64))
+    consulted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # 強化措施（範本第五點第一款；內控手冊 BIC06-03 八(二)）
     wealth_source: Mapped[str | None] = mapped_column(Text)     # 財富來源
     fund_source_detail: Mapped[str | None] = mapped_column(Text)  # 資金實質來源

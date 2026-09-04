@@ -93,6 +93,9 @@ def main() -> None:
         if n == 11:
             svc.save_checks(db, case, agent, "suspicious", ["A2"])
         if n % 15 != 14:  # 保留少數草稿
+            # 高風險案件須先照會主管才能送出
+            if svc.evaluate(case).level == "high":
+                svc.record_consultation(db, case, agent, "通訊處經理")
             svc.submit(db, case, agent)
 
     total = db.query(User).count()

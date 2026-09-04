@@ -53,6 +53,7 @@ def test_pep_list_hit_forces_high_risk_without_blocking(db, agent, q):
     case = svc.create_draft(db, agent)
     fill_lowest(db, case, agent, q)
     svc.save_profile(db, case, agent, {"holder_name": "某政治人物"})
+    svc.record_consultation(db, case, agent, "王經理")
     svc.submit(db, case, agent)
 
     assert case.risk_level == RiskLevel.HIGH

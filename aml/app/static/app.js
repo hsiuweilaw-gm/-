@@ -47,6 +47,8 @@
     flush();
   }
 
+  // 業務員的回應中沒有 total_score / level：分數與等級不對第一道防線揭露，
+  // 只以「須照會主管」的警示與填答進度呈現。主管以上的回應才帶分數欄位。
   function render(d) {
     const bar = document.getElementById("scorebar");
     const scoreEl = document.getElementById("score-value");
@@ -54,39 +56,60 @@
     const progEl = document.getElementById("score-progress");
     const countEl = document.getElementById("score-count");
     const noticeEl = document.getElementById("score-notice");
-    if (scoreEl) scoreEl.textContent = d.total_score;
-    if (levelEl) levelEl.textContent = d.level_label;
+    const hasScore = typeof d.total_score === "number";
+
     if (countEl) countEl.textContent = d.answered + " / " + d.total_factors;
     if (progEl) {
-      const span = d.max_score - d.min_score;
-      const pct = span > 0 ? Math.max(0, Math.min(100, ((d.total_score - d.min_score) / span) * 100)) : 0;
-      progEl.style.width = pct + "%";
+      const pct = d.total_factors ? (d.answered / d.total_factors) * 100 : 0;
+      progEl.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    }
+    if (hasScore) {
+      if (scoreEl) scoreEl.textContent = d.total_score;
+      if (levelEl) levelEl.textContent = d.level_label;
     }
     if (bar) {
-      bar.classList.toggle("high", d.level === "high");
+      bar.classList.toggle("high", hasScore ? d.level === "high" : !!d.needs_consultation);
       bar.classList.toggle("blocked", !!d.blocked);
     }
     if (noticeEl) {
-      const msgs = (d.blocked_reasons || []).concat(d.override_reasons || []);
       if (d.blocked) {
         noticeEl.className = "alert danger";
-        noticeEl.innerHTML = "<strong>本案應婉拒建立業務關係，請立即通知洗錢防制專責主管。</strong><ul><li>"
-          + msgs.map(esc).join("</li><li>") + "</li></ul>";
-      } else if (d.level === "high") {
+        noticeEl.innerHTML =
+          "<strong>本案應婉拒建立業務關係，請停止招攬並立即通知洗錢防制專責主管。</strong>"
+          + "<ul><li>" + (d.blocked_reasons || []).map(esc).join("</li><li>") + "</li></ul>";
+      } else if (d.needs_consultation) {
         noticeEl.className = "alert warn";
-        noticeEl.innerHTML = "<strong>本案為高風險客戶，送出後須經單位主管同意始得建立業務關係，"
-          + "並應瞭解客戶財富及資金來源。</strong>"
-          + (msgs.length ? "<ul><li>" + msgs.map(esc).join("</li><li>") + "</li></ul>" : "");
+        noticeEl.innerHTML =
+          "<strong>本案須照會單位主管確認後，方得建立業務關係。</strong>"
+          + "請於下方「照會主管確認」區塊完成登錄，並填列客戶財富來源與資金之實質來源。";
       } else {
         noticeEl.className = "";
         noticeEl.innerHTML = "";
       }
     }
+
+    // 照會區塊只在需要時出現；已完成照會則改為顯示紀錄。
+    const consultBlock = document.getElementById("consult-block");
+    if (consultBlock) consultBlock.style.display = d.needs_consultation ? "" : "none";
+    const consultForm = document.getElementById("consult-form");
+    const consultDone = document.getElementById("consult-done");
+    if (consultForm) consultForm.hidden = !!d.consulted;
+    if (consultDone) {
+      consultDone.hidden = !d.consulted;
+      if (d.consulted) {
+        consultDone.className = "alert info";
+        consultDone.innerHTML = "已照會 <strong>" + esc(d.consulted_name || "") + "</strong>";
+      }
+    }
+
+    const blocking = !d.complete || (d.needs_consultation && !d.consulted);
     const submitBtn = document.getElementById("submit-btn");
-    if (submitBtn) submitBtn.disabled = !d.complete;
+    if (submitBtn) submitBtn.disabled = blocking;
     const missingEl = document.getElementById("missing-hint");
     if (missingEl) {
-      missingEl.textContent = d.complete ? "" : "尚有 " + d.missing_factors.length + " 題未填答";
+      missingEl.textContent = !d.complete
+        ? "尚有 " + d.missing_factors.length + " 題未填答"
+        : (d.needs_consultation && !d.consulted ? "請先完成上方「照會主管確認」" : "");
     }
   }
 
@@ -142,6 +165,35 @@
       box.addEventListener("focusout", function () {
         if (timer) { clearTimeout(timer); timer = null; saveProfile(); }
       });
+    });
+  }
+
+  const consultBtn = document.getElementById("consult-btn");
+  if (consultBtn) {
+    consultBtn.addEventListener("click", async function () {
+      const input = document.getElementById("supervisor_name");
+      const errEl = document.getElementById("consult-error");
+      const name = (input.value || "").trim();
+      if (!name) {
+        errEl.textContent = "請填寫照會之主管姓名";
+        input.focus();
+        return;
+      }
+      errEl.textContent = "";
+      consultBtn.disabled = true;
+      try {
+        const res = await fetch("/api/assessments/" + caseNo + "/consult", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ supervisor_name: name }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        render(await res.json());
+        setHint("已登錄照會紀錄", "saved");
+      } catch (err) {
+        errEl.textContent = "登錄失敗，請確認網路後再試";
+        consultBtn.disabled = false;
+      }
     });
   }
 

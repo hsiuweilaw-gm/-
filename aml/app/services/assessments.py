@@ -284,6 +284,7 @@ def save_profile(
             "watchlist_hits": [
                 {"list": h.list_type, "matched": h.matched_value, "field": h.query} for h in hits
             ],
+            "consulted": assessment.consulted_name,
         },
         ip=ip,
     )
@@ -291,12 +292,34 @@ def save_profile(
     return result
 
 
+def record_consultation(
+    db: Session, assessment: Assessment, actor: User, supervisor_name: str,
+    ip: str | None = None,
+) -> None:
+    """記錄業務員已照會單位主管。
+
+    業務員看不到分數，但系統在跨越門檻時會警示；此照會確認是送出高風險案件的前提，
+    對應內控手冊「確認客戶風險等級為高風險時，應立即通知主管備查及列管」之要求。
+    """
+    supervisor_name = supervisor_name.strip()
+    if not supervisor_name:
+        raise ValueError("請填寫照會之主管姓名")
+    assessment.consulted_supervisor = True
+    assessment.consulted_name = supervisor_name
+    assessment.consulted_at = utcnow()
+    audit.record(
+        db, actor=actor, action="assessment.consulted", entity_type="assessment",
+        entity_id=assessment.case_no, detail={"supervisor": supervisor_name}, ip=ip,
+    )
+    db.commit()
+
+
 def submit(db: Session, assessment: Assessment, actor: User, ip: str | None = None) -> ScoreResult:
     """送出評估。
 
     - 未填完：拒絕送出。
     - 命中婉拒事由：狀態 BLOCKED，通知專責主管，業務員不得續辦。
-    - 高風險：狀態 PENDING_APPROVAL，須主管同意始得建立業務關係。
+    - 高風險：須先完成照會主管之紀錄，狀態 PENDING_APPROVAL，經主管同意始得建立業務關係。
     - 一般風險：狀態 SUBMITTED，直接完成。
     """
     result, hits = evaluate_with_screening(db, assessment)
@@ -304,6 +327,8 @@ def submit(db: Session, assessment: Assessment, actor: User, ip: str | None = No
         q = questionnaire_for(assessment)
         labels = [q.factor(c).label for c in result.missing_factors if q.factor(c)]
         raise ValueError("尚有風險因子未填答：" + "、".join(labels))
+    if result.level == "high" and not result.blocked and not assessment.consulted_supervisor:
+        raise ValueError("本案須先照會單位主管並於畫面確認後，始得送出")
 
     apply_result(assessment, result)
     if result.blocked:
@@ -328,6 +353,7 @@ def submit(db: Session, assessment: Assessment, actor: User, ip: str | None = No
             "watchlist_hits": [
                 {"list": h.list_type, "matched": h.matched_value, "field": h.query} for h in hits
             ],
+            "consulted": assessment.consulted_name,
         },
         ip=ip,
     )
