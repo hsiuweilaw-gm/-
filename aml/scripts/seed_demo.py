@@ -8,6 +8,7 @@ from __future__ import annotations
 import random
 import sys
 
+from app.config import get_settings
 from app.db import SessionLocal, init_db, stamp_head
 from app.models import OrgUnit, Role, User
 from app.scoring.engine import load_questionnaire
@@ -102,6 +103,9 @@ def main() -> None:
     total = db.query(User).count()
     print(f"示範資料已建立：{total} 個帳號、60 件評估案件。")
     print(f"所有帳號的密碼皆為：{DEMO_PASSWORD}")
+    if get_settings().totp_required:
+        print("雙因素驗證為開啟狀態：每個帳號首次登入會被要求以手機驗證器 App 完成設定。")
+        print("純單機評估如不需此流程，可於 .env 設 AML_TOTP_REQUIRED=false 後重啟。")
     print("建議登入：admin / aml01（洗防專責）/ sup_tp（主管）/ agent01（業務員）")
     db.close()
 

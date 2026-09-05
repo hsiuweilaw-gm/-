@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..db import get_db
 from ..deps import can_unmask_pii, require_oversight
 from ..models import Assessment, OrgUnit, ReportExport, User
@@ -20,7 +21,7 @@ from .auth import client_ip
 
 router = APIRouter(prefix="/reports")
 
-COMPANY_NAME = "看見保險經紀人股份有限公司"
+COMPANY_NAME = get_settings().company_name
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 

@@ -192,6 +192,27 @@ def reset_password(request: Request, user_id: int, db: Session = Depends(get_db)
     )
 
 
+@router.post("/users/{user_id}/reset-totp")
+def reset_totp(request: Request, user_id: int, db: Session = Depends(get_db),
+               user: User = Depends(require_admin)):
+    """重設雙因素驗證。
+
+    使用者換手機或遺失裝置時的唯一救援途徑，因此刻意不做「備援碼」——
+    備援碼多半被截圖存在手機裡，等於把第二道因素放回第一道旁邊。
+    改由管理者本人確認身分後重設，且留下稽核軌跡。
+    """
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "查無此帳號")
+    target.totp_secret_enc = None
+    target.totp_confirmed_at = None
+    target.totp_last_counter = None
+    audit.record(db, actor=user, action="user.reset_totp", entity_type="user",
+                 entity_id=target.username, ip=client_ip(request))
+    db.commit()
+    return RedirectResponse("/admin", status_code=303)
+
+
 @router.post("/users/{user_id}/training")
 def record_training(
     request: Request,

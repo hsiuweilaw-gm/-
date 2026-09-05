@@ -17,6 +17,9 @@ os.environ["AML_DATABASE_URL"] = (
 os.environ["AML_SECRET_KEY"] = "test-secret-key-not-for-production"
 os.environ["AML_PII_KEY"] = base64.urlsafe_b64encode(b"0" * 32).decode()
 os.environ["AML_BOOTSTRAP_ADMIN_PASSWORD"] = ""
+# 雙因素驗證在測試環境預設關閉，讓各項功能測試專注於自己的標的；
+# 開啟後的強制設定、登入第二道、重放防護等行為由 test_auth_2fa.py 涵蓋。
+os.environ["AML_TOTP_REQUIRED"] = "false"
 
 from app.db import SessionLocal, engine, stamp_head  # noqa: E402
 from app.models import Base, OrgUnit, Role, User  # noqa: E402

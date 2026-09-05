@@ -106,7 +106,7 @@
   </p>
   <div class="table-wrap"><table>
     <thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>單位</th><th>登錄字號</th>
-      <th>洗防訓練完訓日</th><th>最後登入</th><th>狀態</th><th>操作</th></tr></thead>
+      <th>洗防訓練完訓日</th><th>最後登入</th><th>雙因素</th><th>狀態</th><th>操作</th></tr></thead>
     <tbody>{% for u in users %}
       {% set stale = not u.aml_training_date or (today - u.aml_training_date).days > 365 %}
       <tr {% if stale and u.role == Role.AGENT and u.active %}class="flagged"{% endif %}>
@@ -124,6 +124,8 @@
           </form>
         </td>
         <td class="muted">{{ u.last_login_at.strftime("%Y-%m-%d") if u.last_login_at else "－" }}</td>
+        <td><span class="tag {{ 'ok' if u.totp_confirmed_at else 'warn' }}">
+          {{ "已啟用" if u.totp_confirmed_at else "未設定" }}</span></td>
         <td><span class="tag {{ 'ok' if u.active else 'muted' }}">{{ "啟用" if u.active else "停用" }}</span></td>
         <td>
           <div class="btn-row">
@@ -132,6 +134,12 @@
                 {{ "停用" if u.active else "啟用" }}</button></form>
             <form method="post" action="/admin/users/{{ u.id }}/reset-password">
               <button class="secondary" style="padding:.2rem .5rem;font-size:.75rem">重設密碼</button></form>
+            {% if u.totp_confirmed_at %}
+            <form method="post" action="/admin/users/{{ u.id }}/reset-totp">
+              <button class="secondary" style="padding:.2rem .5rem;font-size:.75rem"
+                      title="使用者換手機或遺失裝置時使用。重設後其下次登入須重新設定。">
+                重設雙因素</button></form>
+            {% endif %}
           </div>
         </td>
       </tr>

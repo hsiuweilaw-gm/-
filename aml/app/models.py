@@ -104,6 +104,11 @@ class User(Base):
     # 洗錢防制教育訓練最近完訓日（範本第十三點；業務人員每年應受訓）
     aml_training_date: Mapped[date | None] = mapped_column(Date)
 
+    # 雙因素驗證（TOTP）。密鑰加密儲存；last_counter 用於防止代碼在有效期內被重放。
+    totp_secret_enc: Mapped[str | None] = mapped_column(Text)
+    totp_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    totp_last_counter: Mapped[int | None] = mapped_column(Integer)
+
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_logins: Mapped[int] = mapped_column(Integer, default=0)

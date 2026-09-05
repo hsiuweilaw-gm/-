@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     pii_key: str = "ZGV2LW9ubHktcGlpLWtleS0zMi1ieXRlcy1ub3Qtc2FmZQ=="
 
     session_max_age_seconds: int = 8 * 60 * 60  # 上班日 8 小時後強制重新登入
+
+    # 公司名稱。用於報表表頭與驗證器 App 顯示的發行者名稱。
+    company_name: str = "看見保險經紀人股份有限公司"
+
+    # 雙因素驗證。系統存有客戶身分證字號，對外開放時僅靠帳密不足；
+    # 設為 false 僅供封閉內網之教育訓練環境使用。
+    totp_required: bool = True
+    # 同一來源位址在時間窗內允許的登入嘗試次數（含密碼與一次性密碼）。
+    # 帳號鎖定只擋單一帳號，擋不住換帳號輪流嘗試。
+    login_attempts_per_ip: int = 30
+    login_attempt_window_seconds: int = 15 * 60
     cookie_secure: bool = False  # 正式環境走 HTTPS 時設為 true
 
     # 高風險門檻可由主管機關函令調整，故設為組態而非常數。

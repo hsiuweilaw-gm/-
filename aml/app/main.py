@@ -7,12 +7,12 @@ from contextlib import asynccontextmanager
 from datetime import date
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .db import SessionLocal, assert_schema_current
-from .deps import current_user_optional
+from .deps import OnboardingRequired, current_user_optional, pending_step
 from .models import Role, User
 from .routers import admin, api, assessments, auth, compliance, reports, review
 from .security import hash_password
@@ -41,6 +41,18 @@ app.include_router(reports.router)
 app.include_router(admin.router)
 
 
+@app.exception_handler(OnboardingRequired)
+async def onboarding_redirect(request: Request, exc: OnboardingRequired):
+    """帳號還有必辦事項（改密碼、設定雙因素）時，一律導回該頁。
+
+    以相依項＋例外處理器實作，而不是只在首頁檢查——後者只要直接輸入
+    其他網址就能略過。API 請求回傳 401，避免自動儲存的請求被導向到 HTML。
+    """
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": "請先完成帳號設定"}, status_code=401)
+    return RedirectResponse(exc.target, status_code=303)
+
+
 def bootstrap_admin() -> None:
     """首次啟動時依環境變數建立管理者帳號。未設定密碼則略過。"""
     settings = get_settings()
@@ -67,8 +79,9 @@ def bootstrap_admin() -> None:
 def home(request: Request, user: User | None = Depends(current_user_optional)):
     if user is None:
         return RedirectResponse("/login", status_code=303)
-    if user.must_change_password:
-        return RedirectResponse("/change-password", status_code=303)
+    step = pending_step(user)
+    if step:
+        return RedirectResponse(step, status_code=303)
     destination = {
         Role.AGENT: "/assessments",
         Role.SUPERVISOR: "/review",

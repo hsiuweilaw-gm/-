@@ -17,12 +17,20 @@ from .db import get_db
 from .models import Assessment, Role, User, as_aware, utcnow
 
 SESSION_COOKIE = "aml_session"
+# 密碼已驗證、尚待一次性密碼的中繼憑證。刻意與正式工作階段分開，
+# 且效期極短——它代表「通過了第一道」，不是登入狀態。
+PENDING_COOKIE = "aml_pending_2fa"
+PENDING_MAX_AGE = 5 * 60
 MAX_FAILED_LOGINS = 5
 LOCKOUT = timedelta(minutes=15)
 
 
 def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(get_settings().secret_key, salt="aml-session")
+
+
+def _pending_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(get_settings().secret_key, salt="aml-pending-2fa")
 
 
 def issue_session(user: User) -> str:
@@ -34,6 +42,34 @@ def read_session(token: str) -> dict | None:
         return _serializer().loads(token, max_age=get_settings().session_max_age_seconds)
     except (BadSignature, SignatureExpired):
         return None
+
+
+def issue_pending(user: User) -> str:
+    return _pending_serializer().dumps({"uid": user.id})
+
+
+def read_pending(token: str) -> dict | None:
+    try:
+        return _pending_serializer().loads(token, max_age=PENDING_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+class OnboardingRequired(Exception):
+    """帳號尚有未完成的必辦事項（改密碼、設定雙因素），須先導向該頁。"""
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        super().__init__(target)
+
+
+def pending_step(user: User) -> str | None:
+    """回傳此帳號還沒完成、且必須先完成的事項頁面。"""
+    if user.must_change_password:
+        return "/change-password"
+    if get_settings().totp_required and user.totp_confirmed_at is None:
+        return "/totp/setup"
+    return None
 
 
 def current_user_optional(request: Request, db: Session = Depends(get_db)) -> User | None:
@@ -49,9 +85,22 @@ def current_user_optional(request: Request, db: Session = Depends(get_db)) -> Us
     return user
 
 
-def current_user(user: User | None = Depends(current_user_optional)) -> User:
+def current_user_any(user: User | None = Depends(current_user_optional)) -> User:
+    """已登入即可，不檢查必辦事項。僅供必辦事項本身的頁面使用。"""
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "請先登入")
+    return user
+
+
+def current_user(user: User = Depends(current_user_any)) -> User:
+    """已登入且必辦事項均已完成。
+
+    必辦事項若只在首頁檢查，使用者直接輸入其他網址即可略過——
+    這道檢查因此放在相依項，涵蓋每一個受保護的頁面。
+    """
+    step = pending_step(user)
+    if step:
+        raise OnboardingRequired(step)
     return user
 
 

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}設定雙因素驗證 — 洗錢防制客戶風險評估系統{% endblock %}
+{% block content %}
+<div style="max-width:560px;margin:2rem auto">
+  <h1>設定雙因素驗證</h1>
+
+  {% if already %}
+    <div class="alert info">
+      本帳號已啟用雙因素驗證（{{ user.totp_confirmed_at.strftime("%Y-%m-%d %H:%M") }}）。
+      若更換手機或遺失裝置，請聯絡系統管理者重設。
+    </div>
+    <p><a class="btn" href="/">回首頁</a></p>
+  {% else %}
+    <p class="muted">
+      本系統存有客戶個人資料，登入除密碼外另需手機產生的一次性驗證碼。
+      只需設定一次，之後每次登入輸入當下的 6 位數即可。
+    </p>
+    {% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+
+    <div class="card">
+      <h2>一、安裝驗證器 App</h2>
+      <p class="muted">
+        手機若尚未安裝，請於 App Store 或 Google Play 搜尋並安裝
+        <strong>Google Authenticator</strong> 或 <strong>Microsoft Authenticator</strong>（皆免費）。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>二、加入本系統</h2>
+      <p class="muted"><strong>用手機看這一頁：</strong>直接點下面的連結，會自動開啟驗證器 App。</p>
+      <p><a class="btn" href="{{ uri }}">在驗證器 App 中開啟</a></p>
+      <p class="muted"><strong>用電腦看這一頁：</strong>拿手機打開驗證器 App，掃描下方 QR。</p>
+      <div style="max-width:200px;margin:.5rem 0">{{ qr_svg|safe }}</div>
+      <p class="muted">
+        兩者都無法使用時，可在 App 中選「手動輸入」，並鍵入下列密鑰：<br>
+        <code style="font-size:1.05rem;letter-spacing:.08em">{{ secret_display }}</code>
+      </p>
+    </div>
+
+    <form method="post" action="/totp/setup" class="card">
+      <h2>三、輸入 App 顯示的 6 位數以完成設定</h2>
+      <div class="field">
+        <label for="code">驗證碼</label>
+        <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
+               pattern="[0-9]*" maxlength="7" required
+               style="font-size:1.6rem;letter-spacing:.3em;text-align:center">
+      </div>
+      <button type="submit" style="width:100%">完成設定</button>
+    </form>
+
+    <p class="muted">
+      完成後請勿刪除 App 中的這筆資料，否則將無法登入，須由系統管理者重設。
+    </p>
+  {% endif %}
+</div>
+{% endblock %}
