@@ -19,6 +19,22 @@ depends_on: str | Sequence[str] | None = None
 FK_NAME = "fk_assessments_hit_cleared_by_id_users"
 
 
+def _hit_cleared_fk_names(bind) -> list[str]:
+    """查出實際存在的外鍵名稱。
+
+    同一個外鍵可能有兩種來源：本遷移建立的（FK_NAME），或測試以
+    metadata.create_all 建立、由資料庫自動命名的（PostgreSQL 為
+    assessments_hit_cleared_by_id_fkey）。降版時若寫死名稱，遇到後者
+    會直接失敗——而 SQLite 的 batch 模式是整張表重建，這個錯誤在
+    SQLite 上完全測不出來。
+    """
+    return [
+        fk["name"]
+        for fk in sa.inspect(bind).get_foreign_keys("assessments")
+        if fk.get("name") and fk.get("constrained_columns") == ["hit_cleared_by_id"]
+    ]
+
+
 def upgrade() -> None:
     with op.batch_alter_table("assessments", schema=None) as batch_op:
         # 既有案件一律視為未曾命中制裁名單，故補 server_default 後再移除，
@@ -47,8 +63,10 @@ def downgrade() -> None:
     op.execute(
         "UPDATE assessments SET status = 'PENDING_APPROVAL' WHERE status = 'HIT_REVIEW'"
     )
+    existing_fks = _hit_cleared_fk_names(op.get_bind())
     with op.batch_alter_table("assessments", schema=None) as batch_op:
-        batch_op.drop_constraint(FK_NAME, type_="foreignkey")
+        for name in existing_fks:
+            batch_op.drop_constraint(name, type_="foreignkey")
         batch_op.drop_column("hit_cleared_note")
         batch_op.drop_column("hit_cleared_by_id")
         batch_op.drop_column("hit_cleared_at")

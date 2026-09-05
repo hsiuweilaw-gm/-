@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -17,7 +18,8 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
 
 from app.models import Base
 
@@ -95,6 +97,61 @@ def test_migrations_survive_a_full_downgrade_and_upgrade_cycle(fresh_db):
 
     again = _run(["upgrade", "head"], fresh_db)
     assert again.returncode == 0, f"降級後無法重新升級：\n{again.stderr}"
+
+
+@pytest.fixture
+def create_all_db(tmp_path):
+    """以 metadata.create_all 建出來的資料庫。
+
+    索引、外鍵等物件的名稱由資料庫自動產生，與遷移自己命名的並不相同。
+    測試環境與正式環境重建時走的都是這條路徑，降版腳本若寫死自己命名的
+    物件，就只有在這裡才會失敗——偏偏那正是真的要回滾時面對的資料庫。
+    """
+    configured = os.environ.get("AML_TEST_DATABASE_URL")
+    if not configured:
+        url = f"sqlite:///{tmp_path / 'create_all.db'}"
+        engine = create_engine(url)
+        Base.metadata.create_all(engine)
+        engine.dispose()
+        yield url
+        return
+
+    # 另建一個資料庫，避免降版動作影響其他測試共用的那個。
+    base = make_url(configured)
+    name = f"{base.database}_migrate"
+    admin = create_engine(base.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+    except Exception as exc:  # 權限不足等
+        admin.dispose()
+        pytest.skip(f"無法建立測試用資料庫：{exc}")
+
+    url = base.set(database=name).render_as_string(hide_password=False)
+    engine = create_engine(url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    yield url
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+    admin.dispose()
+
+
+def test_downgrade_works_on_a_database_built_by_create_all(create_all_db):
+    """降版不得依賴遷移自己命名的物件。
+
+    曾發生：降版腳本以自訂名稱移除外鍵，但該資料庫是 create_all 建的，
+    外鍵由 PostgreSQL 自動命名，降版直接失敗。SQLite 的 batch 模式是
+    整張表重建，這個錯誤在 SQLite 上測不出來。
+    """
+    assert _run(["stamp", "head"], create_all_db).returncode == 0
+
+    result = _run(["downgrade", "base"], create_all_db)
+    assert result.returncode == 0, f"降版失敗：\n{result.stderr}"
+
+    again = _run(["upgrade", "head"], create_all_db)
+    assert again.returncode == 0, f"降版後無法重新升級：\n{again.stderr}"
 
 
 def test_there_is_exactly_one_head():
