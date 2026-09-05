@@ -134,6 +134,9 @@ tr.flagged td { background: var(--danger-soft); }
 .savehint.saved { color: var(--ok); }
 .savehint.error { color: var(--danger); }
 
+input.invalid, textarea.invalid { border-color: var(--danger); background: var(--danger-soft); }
+.field-error { font-size: .8rem; color: var(--danger); margin-top: .25rem; }
+
 .checklist label { display: flex; gap: .6rem; align-items: flex-start; font-size: .9rem;
                    color: var(--ink); padding: .45rem .2rem; border-bottom: 1px solid #eef1f4; }
 .checklist input { margin-top: .25rem; flex: none; width: 1.05rem; height: 1.05rem; }

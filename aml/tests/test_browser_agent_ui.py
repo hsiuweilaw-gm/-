@@ -149,3 +149,80 @@ def test_agent_ui_hides_score_and_gates_submit_on_consultation(db, live_server, 
     page.wait_for_timeout(900)
     assert not page.locator("#submit-btn").is_disabled(), "完成照會後應開放送出"
     assert "陳經理" in page.locator("#consult-done").inner_text()
+
+
+def test_bad_premium_is_named_and_does_not_block_answers(db, live_server, page):
+    """單一欄位格式錯誤，不得讓後續作答靜默丟失。
+
+    實地測試時發生過：保費欄輸入非數字 → 伺服器回 422 → 前端無限重試同一筆，
+    整個儲存佇列被堵死，十題作答全部沒進資料庫，畫面卻只顯示「請確認網路」。
+    業務員在客戶面前只會判斷成系統故障，這道法遵管制在現場等於失效。
+    """
+    unit = OrgUnit(code="TC01", name="台中通訊處")
+    db.add(unit)
+    db.commit()
+    agent = make_user(db, "agent01", Role.AGENT, unit.id)
+    case = svc.create_draft(db, agent)
+    q = load_questionnaire()
+
+    _login(page, live_server, "agent01")
+    page.goto(f"{live_server}/assessments/{case.case_no}")
+    page.wait_for_load_state("networkidle")
+
+    page.fill("#annual_premium", "500萬")
+    page.locator("#policy_no").focus()          # 觸發 focusout，立即存檔
+    page.wait_for_timeout(400)
+
+    assert page.locator("#annual_premium_error").is_visible(), "須就地指出是哪一格有問題"
+    assert "5000000" in page.locator("#annual_premium_error").inner_text()
+    assert "invalid" in (page.locator("#annual_premium").get_attribute("class") or "")
+
+    factor = q.factors[0]
+    el = page.locator(f"input[name='{factor.code}'][value='{HIGH_RISK[factor.code]}']")
+    el.scroll_into_view_if_needed()
+    el.check()
+    page.wait_for_timeout(400)
+    assert page.locator("#score-count").inner_text() == f"1 / {len(q.factors)}", \
+        "保費格式錯誤不得波及作答儲存"
+
+    page.fill("#annual_premium", "5000000")
+    page.locator("#policy_no").focus()
+    page.wait_for_timeout(600)
+    assert page.locator("#annual_premium_error").is_hidden()
+    assert "已儲存" in page.locator("#savehint").inner_text()
+
+
+def test_rejected_request_reports_reason_and_queue_keeps_running(db, live_server, page):
+    """伺服器拒絕的請求：說明原因、丟棄該筆，且不得卡住後續儲存。
+
+    4xx 重試永遠不會成功。舊版一律當成連線問題無限重試，訊息還寫「請確認網路」，
+    使用者被引導去檢查網路，真正的原因永遠不會被發現。
+    """
+    unit = OrgUnit(code="TC01", name="台中通訊處")
+    db.add(unit)
+    db.commit()
+    agent = make_user(db, "agent01", Role.AGENT, unit.id)
+    case = svc.create_draft(db, agent)
+    q = load_questionnaire()
+    first, second = q.factors[0], q.factors[1]
+
+    _login(page, live_server, "agent01")
+    page.goto(f"{live_server}/assessments/{case.case_no}")
+    page.wait_for_load_state("networkidle")
+
+    # 把第一題的某個選項竄改成不存在的值，模擬伺服器拒絕該筆。
+    bad = page.locator(f"input[name='{first.code}']").first
+    bad.evaluate("el => el.value = 'not-a-real-option'")
+    bad.check()
+    page.wait_for_timeout(500)
+
+    hint = page.locator("#savehint").inner_text()
+    assert "未知的選項" in hint, f"必須說明真正的原因，實得：{hint}"
+    assert "網路" not in hint, "驗證錯誤不得誤導為網路問題"
+
+    el = page.locator(f"input[name='{second.code}'][value='{HIGH_RISK[second.code]}']")
+    el.scroll_into_view_if_needed()
+    el.check()
+    page.wait_for_timeout(500)
+    assert page.locator("#score-count").inner_text() == f"1 / {len(q.factors)}", \
+        "被拒絕的那一筆不得堵住後續作答"

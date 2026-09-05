@@ -71,6 +71,7 @@
         <input type="text" inputmode="numeric" id="annual_premium" name="annual_premium"
                value="{{ case.annual_premium|int if case.annual_premium else '' }}"
                {{ 'disabled' if not editable }} autocomplete="off">
+        <div class="field-error" id="annual_premium_error" hidden></div>
       </div>
     </div>
     <p class="muted">

@@ -17,28 +17,67 @@
     hint.className = "savehint " + (cls || "");
   }
 
+  function retryLater(text) {
+    setHint(text, "error");
+    setTimeout(function () { inflight = false; flush(); }, 4000);
+  }
+
+  /* 取出伺服器回覆的錯誤說明。
+     FastAPI 的 HTTPException 為字串，請求驗證失敗則為陣列。 */
+  async function serverMessage(res) {
+    try {
+      const body = await res.json();
+      const detail = body && body.detail;
+      if (typeof detail === "string" && detail) return detail;
+      if (Array.isArray(detail) && detail.length && detail[0].msg) {
+        return detail[0].msg;
+      }
+    } catch (err) { /* 回應不是 JSON，改用通用訊息 */ }
+    return res.status === 401 ? "登入已逾時，請重新登入"
+         : res.status === 409 ? "案件已送出或非本人承辦，無法修改"
+         : "資料未通過檢核（錯誤代碼 " + res.status + "）";
+  }
+
   async function flush() {
     if (inflight || pending.length === 0) return;
     inflight = true;
     const job = pending[0];
     setHint("儲存中…", "saving");
+
+    let res;
     try {
-      const res = await fetch(job.url, {
+      res = await fetch(job.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(job.body),
       });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
-      pending.shift();
-      // 業務員的回應不含 total_score，改以填答進度欄位判斷是否為評分結果。
-      if (data && typeof data.total_factors === "number") render(data);
-      setHint("已儲存 " + new Date().toLocaleTimeString("zh-TW"), "saved");
     } catch (err) {
-      setHint("尚未儲存，將自動重試（請確認網路）", "error");
-      setTimeout(() => { inflight = false; flush(); }, 4000);
+      // 連不上伺服器：資料留在佇列中，恢復連線後會補送。
+      retryLater("連線中斷，尚未儲存，將自動重試");
       return;
     }
+
+    if (!res.ok) {
+      if (res.status >= 400 && res.status < 500) {
+        /* 資料本身不合格或無權限：重試永遠不會成功。
+           必須丟棄這一筆並說明原因，否則它會卡在佇列最前面，
+           把後續每一次作答一併堵死，而業務員只看到「請確認網路」。 */
+        pending.shift();
+        setHint(await serverMessage(res) + "（此筆未儲存）", "error");
+        inflight = false;
+        if (pending.length) flush();
+        return;
+      }
+      // 5xx：伺服器暫時性錯誤，值得重試。
+      retryLater("伺服器暫時無法儲存，將自動重試");
+      return;
+    }
+
+    const data = await res.json();
+    pending.shift();
+    // 業務員的回應不含 total_score，改以填答進度欄位判斷是否為評分結果。
+    if (data && typeof data.total_factors === "number") render(data);
+    setHint("已儲存 " + new Date().toLocaleTimeString("zh-TW"), "saved");
     inflight = false;
     if (pending.length) flush();
   }
@@ -149,7 +188,41 @@
   const profileBoxes = document.querySelectorAll("[data-autosave-profile]");
   if (profileBoxes.length) {
     let timer = null;
+    const premiumEl = document.getElementById("annual_premium");
+    const premiumErrEl = document.getElementById("annual_premium_error");
+
+    /* 保費會進入年度報表的保費加權風險計算，必須是純數字。
+       就地檢核而不是等伺服器回 422：後者的錯誤訊息出現在畫面另一端，
+       業務員看不出是哪一格出問題，只會以為系統壞了。 */
+    function premiumProblem() {
+      if (!premiumEl) return "";
+      const raw = premiumEl.value
+        .replace(/[０-９．]/g, function (c) {
+          return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+        })
+        .replace(/,/g, "")
+        .trim();
+      if (!raw) return "";
+      return /^\d+(\.\d+)?$/.test(raw)
+        ? "" : "請輸入純數字金額，例如 5000000（勿加「元」「萬」或空格）";
+    }
+
+    function showPremiumProblem(msg) {
+      if (premiumEl) premiumEl.classList.toggle("invalid", !!msg);
+      if (premiumErrEl) {
+        premiumErrEl.textContent = msg;
+        premiumErrEl.hidden = !msg;
+      }
+    }
+
     const saveProfile = function () {
+      const problem = premiumProblem();
+      showPremiumProblem(problem);
+      if (problem) {
+        // 只擋這一筆基本資料；作答仍照常儲存，不因單一欄位而整份卡住。
+        setHint("本次保費格式有誤，基本資料尚未儲存", "error");
+        return;
+      }
       const body = {};
       profileBoxes.forEach(function (box) {
         box.querySelectorAll("[name]").forEach(function (el) { body[el.name] = el.value; });
