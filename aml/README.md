@@ -205,7 +205,7 @@ AML_TEST_DATABASE_URL="postgresql+psycopg://aml:aml@localhost:5432/aml_test" pyt
 | SQLite 不強制 VARCHAR 長度 | 外部名單欄位過長時，PostgreSQL 拒絕寫入導致整批匯入失敗 | `screening._fit()` 依欄位上限截斷 |
 | `LIKE` 大小寫敏感度不同 | 名單搜尋結果不一致 | 比對前一律正規化為大寫 |
 
-已於 PostgreSQL 16.13 實跑驗證：遷移、114 項測試、示範資料、26,579 筆名單匯入、
+已於 PostgreSQL 16 實跑驗證：遷移、129 項測試、示範資料、26,579 筆名單匯入、
 瀏覽器操作流程、三種報表匯出，報表數字與 SQLite 完全一致。
 
 效能參考（26,586 個對象／60,674 個名稱）：
