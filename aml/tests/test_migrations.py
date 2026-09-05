@@ -77,8 +77,13 @@ def test_every_table_in_the_models_is_created(fresh_db):
     assert not missing, f"遷移未建立下列資料表：{missing}"
 
 
-def test_migrations_can_be_downgraded_to_base(fresh_db):
-    """出事時要回得去。降級失敗代表遷移只能單向，正式環境沒有退路。"""
+def test_migrations_survive_a_full_downgrade_and_upgrade_cycle(fresh_db):
+    """出事時要回得去，而且回去之後還要能再上來。
+
+    只驗證降級不夠：PostgreSQL 的 Enum 是資料庫層級的具名型別，drop_table 不會
+    一併移除，降級後重新升級會因型別已存在而失敗——真的要回滾時就回不去了。
+    此情形在 SQLite 上測不出來（Enum 存成 VARCHAR），故 CI 另以 PostgreSQL 執行。
+    """
     assert _run(["upgrade", "head"], fresh_db).returncode == 0
     result = _run(["downgrade", "base"], fresh_db)
     assert result.returncode == 0, result.stderr
@@ -87,6 +92,9 @@ def test_migrations_can_be_downgraded_to_base(fresh_db):
     remaining = set(inspect(engine).get_table_names()) - {"alembic_version"}
     engine.dispose()
     assert not remaining, f"降級後仍殘留資料表：{remaining}"
+
+    again = _run(["upgrade", "head"], fresh_db)
+    assert again.returncode == 0, f"降級後無法重新升級：\n{again.stderr}"
 
 
 def test_there_is_exactly_one_head():

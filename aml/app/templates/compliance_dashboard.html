@@ -26,6 +26,8 @@
     <div class="label">境外電匯／OIU</div></div>
   <div class="stat"><div class="value">{{ summary.draft_cases }}</div>
     <div class="label">尚未送出草稿</div></div>
+  <div class="stat {{ 'danger' if overdue_reviews }}"><div class="value">{{ overdue_reviews }}</div>
+    <div class="label">逾期未定期審查</div></div>
 </div>
 
 {% if watchlist_hits %}

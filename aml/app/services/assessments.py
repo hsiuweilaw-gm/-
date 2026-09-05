@@ -351,6 +351,12 @@ def submit(db: Session, assessment: Assessment, actor: User, ip: str | None = No
 
     assessment.submitted_at = utcnow()
     assessment.retain_until = date.today() + timedelta(days=365 * RETENTION_YEARS)
+    # 排定首次定期審查日（範本第五點第一款第三目之持續監督）。
+    # 擋件案件不排——本就不得建立業務關係，沒有業務往來可監督。
+    if not result.blocked:
+        from .reviews import schedule_next
+
+        schedule_next(assessment)
 
     audit.record(
         db, actor=actor, action="assessment.submit", entity_type="assessment",

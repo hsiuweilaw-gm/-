@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi.templating import Jinja2Templates
 
-from .models import AssessmentStatus, RiskLevel, Role
+from .models import AssessmentStatus, ReviewOutcome, RiskLevel, Role
 from .services.audit import parse_detail
 
 templates = Jinja2Templates(directory="app/templates")
@@ -37,6 +37,13 @@ ROLE_LABELS = {
     Role.ADMIN: "系統管理者",
 }
 LEVEL_LABELS = {RiskLevel.HIGH: "高風險", RiskLevel.GENERAL: "一般風險"}
+REVIEW_OUTCOMES = {
+    ReviewOutcome.UNCHANGED: "維持原風險等級",
+    ReviewOutcome.ESCALATED: "調升為高風險",
+    ReviewOutcome.DEESCALATED: "調降為一般風險",
+    ReviewOutcome.REASSESS: "應重新辦理客戶審查",
+    ReviewOutcome.TERMINATED: "終止業務關係",
+}
 
 
 def json_list(raw: str | None) -> list[Any]:
@@ -61,6 +68,8 @@ templates.env.globals.update(
     STATUS_TONE=STATUS_TONE,
     ROLE_LABELS=ROLE_LABELS,
     LEVEL_LABELS=LEVEL_LABELS,
+    REVIEW_OUTCOMES=REVIEW_OUTCOMES,
+    ReviewOutcome=ReviewOutcome,
     Role=Role,
     AssessmentStatus=AssessmentStatus,
     RiskLevel=RiskLevel,

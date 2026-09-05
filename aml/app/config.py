@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     aggregate_high_min: float = 3.0
     aggregate_medium_min: float = 2.0
 
+    # 定期審查週期（月）。高風險客戶須較頻繁複核（問答集 Q8：「特別是高風險客戶」）。
+    review_months_high: int = 12
+    review_months_general: int = 36
+
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = ""  # 留空則不自動建立管理者
 

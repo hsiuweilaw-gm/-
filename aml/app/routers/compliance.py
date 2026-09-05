@@ -24,6 +24,8 @@ from ..models import (
     Assessment,
     AssessmentStatus,
     OrgUnit,
+    PeriodicReview,
+    ReviewOutcome,
     RiskLevel,
     Role,
     User,
@@ -33,7 +35,7 @@ from ..models import (
     utcnow,
 )
 from ..security import decrypt_pii, mask_id_number, mask_name
-from ..services import aggregate, anomalies, audit, sanctions_import, screening
+from ..services import aggregate, anomalies, audit, reviews, sanctions_import, screening
 from ..templating import templates
 from .assessments import case_context, load_case
 from .auth import client_ip
@@ -85,6 +87,8 @@ def dashboard(request: Request, db: Session = Depends(get_db),
         and as_aware(c.updated_at) < utcnow() - timedelta(hours=24)
     ]
 
+    overdue_reviews = reviews.overdue_count(db)
+
     # 只掃描近 90 天，避免每次開啟儀表板都全表掃描。
     signals = anomalies.scan(db, since=utcnow() - timedelta(days=90), limit=200)
 
@@ -96,6 +100,7 @@ def dashboard(request: Request, db: Session = Depends(get_db),
             "queue": queue,
             "str_pending": str_pending,
             "watchlist_hits": watchlist_hits,
+            "overdue_reviews": overdue_reviews,
             "abandoned": abandoned,
             "signals": signals[:20],
             "signal_total": len(signals),
@@ -323,3 +328,58 @@ def anomaly_list(request: Request, days: int = Query(90, ge=1, le=730),
         request, "compliance_anomalies.html",
         {"user": user, "signals": signals, "days": days},
     )
+
+
+@router.get("/reviews", response_class=HTMLResponse)
+def review_queue(request: Request, db: Session = Depends(get_db),
+                 user: User = Depends(require_oversight)):
+    """定期審查待辦。"""
+    due = reviews.due_cases(db)
+    today = date.today()
+    return templates.TemplateResponse(
+        request, "compliance_reviews.html",
+        {
+            "user": user,
+            "due": due,
+            "today": today,
+            "overdue": [c for c in due if c.review_due_on and c.review_due_on < today],
+            "org_names": _org_names(db),
+            "outcomes": list(ReviewOutcome),
+            "can_review": user.role in (Role.COMPLIANCE, Role.ADMIN),
+            "recent": (
+                db.query(PeriodicReview)
+                .order_by(PeriodicReview.performed_at.desc())
+                .limit(30)
+                .all()
+            ),
+        },
+    )
+
+
+@router.post("/reviews/rescreen")
+def run_rescreen(request: Request, db: Session = Depends(get_db),
+                 user: User = Depends(require_compliance)):
+    """以當下名單重新篩檢所有仍在監督中的案件。"""
+    result = reviews.rescreen(db, actor=user, ip=client_ip(request))
+    return RedirectResponse(
+        f"/compliance/reviews?checked={result.checked}&hits={result.hit_count}",
+        status_code=303,
+    )
+
+
+@router.post("/reviews/{case_no}")
+def record_review(
+    request: Request,
+    case_no: str,
+    outcome: str = Form(...),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_compliance),
+):
+    case = load_case(db, case_no, user)
+    try:
+        decision = ReviewOutcome(outcome)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "無效的審查結論") from exc
+    reviews.record(db, case, user, decision, note, ip=client_ip(request))
+    return RedirectResponse("/compliance/reviews", status_code=303)

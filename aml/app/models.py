@@ -178,6 +178,12 @@ class Assessment(Base):
     # 境外電匯／OIU 保單（年度報表獨立統計欄位）
     offshore_remittance: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # 定期審查（範本第五點第一款第三目「強化之持續監督」；問答集 Q8）
+    review_due_on: Mapped[date | None] = mapped_column(Date, index=True)
+    last_reviewed_on: Mapped[date | None] = mapped_column(Date)
+    # 最近一次以當時名單重新篩檢的時間
+    rescreened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -191,6 +197,9 @@ class Assessment(Base):
         back_populates="assessment", cascade="all, delete-orphan"
     )
     approvals: Mapped[list[Approval]] = relationship(back_populates="assessment")
+    reviews: Mapped[list[PeriodicReview]] = relationship(
+        back_populates="assessment", order_by="PeriodicReview.performed_at.desc()"
+    )
 
 
 class Answer(Base):
@@ -227,6 +236,41 @@ class Approval(Base):
 
     assessment: Mapped[Assessment] = relationship(back_populates="approvals")
     approver: Mapped[User] = relationship()
+
+
+class ReviewOutcome(str, enum.Enum):
+    UNCHANGED = "unchanged"        # 維持原風險等級
+    ESCALATED = "escalated"        # 調升為高風險
+    DEESCALATED = "deescalated"    # 調降為一般風險
+    REASSESS = "reassess"          # 應重新辦理客戶審查（資料已不足或有疑義）
+    TERMINATED = "terminated"      # 終止業務關係
+
+
+class PeriodicReview(Base):
+    """既有客戶的定期審查紀錄。
+
+    範本第五點第一款第三目要求對高風險客戶之業務往來關係採取強化之持續監督；
+    問答集 Q8 要求定期檢視客戶及實質受益人身分資料是否足夠並確保更新。
+    招攬當下評估一次不足以滿足這項要求，故每案於送出時排定下次應審查日，
+    到期由洗防專責人員複核並記錄結論。
+    """
+
+    __tablename__ = "periodic_reviews"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    assessment_id: Mapped[int] = mapped_column(ForeignKey("assessments.id"), index=True)
+    due_on: Mapped[date] = mapped_column(Date)
+    performed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    performed_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    outcome: Mapped[ReviewOutcome] = mapped_column(Enum(ReviewOutcome))
+    risk_level_before: Mapped[RiskLevel | None] = mapped_column(Enum(RiskLevel))
+    risk_level_after: Mapped[RiskLevel | None] = mapped_column(Enum(RiskLevel))
+    watchlist_hit: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    next_due_on: Mapped[date | None] = mapped_column(Date)
+
+    assessment: Mapped[Assessment] = relationship(back_populates="reviews")
+    reviewer: Mapped[User] = relationship()
 
 
 class AuditEvent(Base):

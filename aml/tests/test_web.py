@@ -407,3 +407,65 @@ def test_compliance_dashboard_lists_watchlist_hits(client, db, agent, compliance
     assert res.status_code == 200
     assert "曾命中制裁" in res.text
     assert case.case_no in res.text
+
+
+def test_review_queue_is_visible_and_records_a_decision(client, db, agent, compliance, q):
+    """定期審查待辦頁與審查登錄的完整流程。"""
+    from datetime import date, timedelta
+
+    from app.models import ReviewOutcome
+
+    case = svc.create_draft(db, agent)
+    for factor in q.factors:
+        svc.save_answer(db, case, agent, factor.code,
+                        min(factor.options, key=lambda o: o.score).code)
+    svc.submit(db, case, agent)
+    case.review_due_on = date.today() - timedelta(days=5)
+    db.commit()
+
+    login(client, "aml01")
+    res = client.get("/compliance/reviews")
+    assert res.status_code == 200
+    assert case.case_no in res.text
+    assert "逾期 5 天" in res.text
+
+    res = client.post(f"/compliance/reviews/{case.case_no}",
+                      data={"outcome": ReviewOutcome.UNCHANGED.value, "note": "資料無異動"},
+                      follow_redirects=False)
+    assert res.status_code == 303
+    db.refresh(case)
+    assert case.last_reviewed_on == date.today()
+    assert case.review_due_on > date.today()
+
+
+def test_rescreen_button_runs_and_reports(client, db, agent, compliance, q):
+    from app.services import screening
+
+    case = svc.create_draft(db, agent)
+    for factor in q.factors:
+        svc.save_answer(db, case, agent, factor.code,
+                        min(factor.options, key=lambda o: o.score).code)
+    svc.save_profile(db, case, agent, {"holder_name": "事後才被列名者"})
+    svc.submit(db, case, agent)
+    screening.add_entry(db, "sanction", "事後才被列名者", source="TW", external_id="T-3")
+    db.commit()
+
+    login(client, "aml01")
+    res = client.post("/compliance/reviews/rescreen", follow_redirects=False)
+    assert res.status_code == 303
+    assert "hits=1" in res.headers["location"]
+    db.refresh(case)
+    assert case.watchlist_hit_at is not None
+
+
+def test_agent_cannot_reach_the_review_queue(client, agent):
+    login(client, "agent01")
+    assert client.get("/compliance/reviews").status_code == 403
+
+
+def test_auditor_can_view_but_not_record_reviews(client, db):
+    make_user(db, "audit02", Role.AUDITOR)
+    db.commit()
+    login(client, "audit02")
+    assert client.get("/compliance/reviews").status_code == 200
+    assert client.post("/compliance/reviews/rescreen").status_code == 403
