@@ -38,6 +38,7 @@ from .assessments import mark_watchlist_hit, screen_case
 # 已結案與擋件案件不需持續監督：前者業務關係已結束，後者本就不得建立業務關係。
 MONITORED_STATUSES = (
     AssessmentStatus.SUBMITTED,
+    AssessmentStatus.HIT_REVIEW,
     AssessmentStatus.PENDING_APPROVAL,
     AssessmentStatus.APPROVED,
 )

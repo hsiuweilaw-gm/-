@@ -165,3 +165,84 @@ def test_case_with_no_hit_has_no_watchlist_mark(db, agent, q):
     case = svc.create_draft(db, agent)
     svc.save_profile(db, case, agent, {"holder_name": "王大明"})
     assert case.watchlist_hit_at is None
+
+
+def test_renamed_sanction_hit_still_requires_compliance_review(db, agent, q, compliance):
+    """曾命中制裁名單者，改名後仍不得逕行完成，須經洗防專責覆核。
+
+    擋件依「當下」的姓名判定，業務員改個寫法即可解除。公司政策是：
+    命中的事實一旦發生，就必須有洗防人員看過並留下結論，而不是仰賴
+    專責人員自行去翻儀表板上的命中清單。
+    """
+    screening.upsert(db, "sanction", "示範制裁對象股份有限公司", "測試名單")
+    db.commit()
+
+    case = svc.create_draft(db, agent)
+    fill_lowest(db, case, agent, q)
+    svc.save_profile(db, case, agent, {"holder_name": "示範制裁對象股份有限公司"})
+    assert svc.evaluate_with_screening(db, case)[0].blocked
+
+    svc.save_profile(db, case, agent, {"holder_name": "另一個名字"})
+    assert not svc.evaluate_with_screening(db, case)[0].blocked, "改名後當下已無命中"
+
+    svc.submit(db, case, agent)
+    assert case.status == AssessmentStatus.HIT_REVIEW, "曾命中制裁名單者不得逕行完成"
+    assert case.watchlist_hit_sanction is True
+
+    svc.clear_hit_review(db, case, compliance, confirmed_match=False,
+                         note="經核對國籍與出生年月日，判定為同名誤判")
+    assert case.status == AssessmentStatus.SUBMITTED, "判定非名單對象後應回到原本流程"
+    assert case.hit_cleared_by_id == compliance.id
+    assert "同名誤判" in case.hit_cleared_note
+
+
+def test_compliance_may_confirm_the_match_and_refuse(db, agent, q, compliance):
+    """覆核確認確為名單所列對象者，依範本第四點婉拒建立業務關係。"""
+    screening.upsert(db, "sanction", "示範制裁對象股份有限公司", "測試名單")
+    db.commit()
+    case = svc.create_draft(db, agent)
+    fill_lowest(db, case, agent, q)
+    svc.save_profile(db, case, agent, {"holder_name": "示範制裁對象股份有限公司"})
+    svc.save_profile(db, case, agent, {"holder_name": "改過的名字"})
+    svc.submit(db, case, agent)
+
+    svc.clear_hit_review(db, case, compliance, confirmed_match=True,
+                         note="身分證字號與名單一致，確為同一對象")
+    assert case.status == AssessmentStatus.BLOCKED
+    assert case.review_due_on is None, "婉拒建立業務關係者無業務往來可監督"
+
+    actions = [e.action for e in audit.trail(db, "assessment", case.case_no)]
+    assert "assessment.hit_review" in actions, "覆核結論必須留下稽核軌跡"
+
+
+def test_hit_review_requires_a_written_reason(db, agent, q, compliance):
+    """放行制裁名單命中是重大決定，不得無理由放行。"""
+    screening.upsert(db, "sanction", "示範制裁對象股份有限公司", "測試名單")
+    db.commit()
+    case = svc.create_draft(db, agent)
+    fill_lowest(db, case, agent, q)
+    svc.save_profile(db, case, agent, {"holder_name": "示範制裁對象股份有限公司"})
+    svc.save_profile(db, case, agent, {"holder_name": "改過的名字"})
+    svc.submit(db, case, agent)
+
+    with pytest.raises(ValueError, match="理由"):
+        svc.clear_hit_review(db, case, compliance, confirmed_match=False, note="   ")
+    assert case.status == AssessmentStatus.HIT_REVIEW
+
+
+def test_pep_hit_alone_does_not_add_a_compliance_gate(db, agent, q, compliance):
+    """PEP 命中已由強制高風險規則導向主管簽核，不另設覆核關卡。
+
+    對每一種命中都設關卡只會製造積案，反而稀釋制裁名單命中的重要性。
+    """
+    screening.upsert(db, "pep", "某政治人物", "測試名單")
+    db.commit()
+    case = svc.create_draft(db, agent)
+    fill_lowest(db, case, agent, q)
+    svc.save_profile(db, case, agent, {"holder_name": "某政治人物"})
+    svc.record_consultation(db, case, agent, "王經理")
+    svc.submit(db, case, agent)
+
+    assert case.watchlist_hit_at is not None
+    assert case.watchlist_hit_sanction is False
+    assert case.status == AssessmentStatus.PENDING_APPROVAL

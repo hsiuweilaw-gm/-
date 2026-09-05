@@ -22,7 +22,43 @@
   <p class="muted" style="margin:.4rem 0 0">
     此紀錄於命中當下寫入，不因事後修改姓名而清除。若目前案件已無命中，請確認原因。
   </p>
+  {% if case.hit_cleared_at %}
+  <p style="margin:.6rem 0 0">
+    <strong>覆核結論</strong>（{{ case.hit_cleared_by.display_name if case.hit_cleared_by }}
+    {{ case.hit_cleared_at.strftime("%Y-%m-%d %H:%M") }}）：{{ case.hit_cleared_note }}
+  </p>
+  {% endif %}
 </div>
+{% endif %}
+
+{% if hit_review_error %}
+<div class="alert danger">{{ hit_review_error }}</div>
+{% endif %}
+
+{% if user.role in (Role.COMPLIANCE, Role.ADMIN)
+      and case.status == AssessmentStatus.HIT_REVIEW %}
+<form method="post" action="/compliance/cases/{{ case.case_no }}/hit-review" class="card"
+      style="border-color:#f0b4b4">
+  <h2 style="color:var(--danger)">名單命中覆核</h2>
+  <p class="muted">
+    本案曾命中制裁／資恐名單，經覆核前不進入其後流程。請確認交易對象是否即為名單所列者：
+    確認為同一對象者，依範本第四點應婉拒建立業務關係；係同名誤判或姓名確經更正者，
+    案件回到原本應有的流程（高風險仍須單位主管同意）。結論將留存於案件並寫入稽核軌跡。
+  </p>
+  <div class="field">
+    <label for="note">覆核理由（必填）</label>
+    <textarea id="note" name="note" required
+              placeholder="例如：經核對出生年月日與國籍，與名單所列對象不同，判定為同名誤判。"></textarea>
+  </div>
+  <div class="btn-row">
+    <button type="submit" name="decision" value="confirmed" class="danger">
+      確認為名單所列對象，應婉拒
+    </button>
+    <button type="submit" name="decision" value="cleared" class="secondary">
+      非名單所列對象，回復原流程
+    </button>
+  </div>
+</form>
 {% endif %}
 {% if signals %}
 <div class="alert warn"><strong>作答行為異常訊號：</strong>

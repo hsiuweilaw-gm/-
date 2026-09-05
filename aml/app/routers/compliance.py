@@ -35,7 +35,15 @@ from ..models import (
     utcnow,
 )
 from ..security import decrypt_pii, mask_id_number, mask_name
-from ..services import aggregate, anomalies, audit, reviews, sanctions_import, screening
+from ..services import (
+    aggregate,
+    anomalies,
+    assessments,
+    audit,
+    reviews,
+    sanctions_import,
+    screening,
+)
 from ..templating import templates
 from .assessments import case_context, load_case
 from .auth import client_ip
@@ -194,6 +202,43 @@ def mark_str(
                  entity_id=case.case_no, detail={"reference": case.str_reference},
                  ip=client_ip(request))
     db.commit()
+    return RedirectResponse(f"/compliance/cases/{case_no}", status_code=303)
+
+
+@router.post("/cases/{case_no}/hit-review")
+def review_watchlist_hit(
+    request: Request,
+    case_no: str,
+    decision: str = Form(...),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_compliance),
+):
+    """對曾命中制裁／資恐名單之案件作成覆核結論。
+
+    決定為 confirmed 者依範本第四點婉拒建立業務關係；為 cleared 者
+    案件回到原本應有的流程（高風險仍須主管同意）。
+    """
+    case = load_case(db, case_no, user)
+    try:
+        assessments.clear_hit_review(
+            db, case, user,
+            confirmed_match=(decision == "confirmed"),
+            note=note,
+            ip=client_ip(request),
+        )
+    except ValueError as exc:
+        context = case_context(db, case, user) | {
+            "user": user,
+            "trail": audit.trail(db, "assessment", case.case_no),
+            "parse_detail": audit.parse_detail,
+            "approvals": case.approvals,
+            "signals": [],
+            "hit_review_error": str(exc),
+        }
+        return templates.TemplateResponse(
+            request, "compliance_case_detail.html", context, status_code=400
+        )
     return RedirectResponse(f"/compliance/cases/{case_no}", status_code=303)
 
 

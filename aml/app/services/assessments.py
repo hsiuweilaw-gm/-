@@ -146,10 +146,64 @@ def mark_watchlist_hit(assessment: Assessment, hits: list[Hit]) -> None:
     業務員發現命中後改寫姓名、或直接放棄草稿另建新案，都不會抹去這筆紀錄；
     洗防人員因此看得到「曾經命中但最後送出時沒命中」的案件。
     """
-    if not hits or assessment.watchlist_hit_at is not None:
+    if not hits:
+        return
+    # 命中性質是累加的：先命中 PEP、後命中制裁名單，兩者都要留下。
+    if any(h.list_type in screening.BLOCKING_LIST_TYPES for h in hits):
+        assessment.watchlist_hit_sanction = True
+    if assessment.watchlist_hit_at is not None:
         return
     assessment.watchlist_hit_at = utcnow()
     assessment.watchlist_hit_note = "；".join(h.describe for h in hits[:5])
+
+
+def needs_hit_review(assessment: Assessment) -> bool:
+    """是否須經洗防專責覆核後始得續行。
+
+    條件為「曾命中制裁／資恐名單」且尚未覆核。PEP 命中不在此列——
+    PEP 本就由強制高風險規則導向主管簽核，另設關卡只會製造無謂的積案。
+    """
+    return bool(assessment.watchlist_hit_sanction) and assessment.hit_cleared_at is None
+
+
+def clear_hit_review(db: Session, assessment: Assessment, actor: User, *,
+                     confirmed_match: bool, note: str, ip: str | None = None) -> None:
+    """洗防專責對名單命中作成結論。
+
+    confirmed_match=True  確認交易對象即為名單所列者 → 婉拒建立業務關係（範本第四點）。
+    confirmed_match=False 同名誤判或姓名確係更正 → 案件回到原本應有的流程。
+
+    結論寫入案件本身，金檢調閱時無須翻稽核軌跡即可查得誰在何時憑什麼放行。
+    """
+    if assessment.status is not AssessmentStatus.HIT_REVIEW:
+        raise ValueError("僅待洗防覆核之案件可進行覆核")
+    if not note.strip():
+        raise ValueError("覆核結論須填列理由")
+
+    assessment.hit_cleared_at = utcnow()
+    assessment.hit_cleared_by_id = actor.id
+    assessment.hit_cleared_note = note.strip()
+
+    if confirmed_match:
+        assessment.status = AssessmentStatus.BLOCKED
+        assessment.review_due_on = None
+    elif assessment.risk_level is RiskLevel.HIGH:
+        assessment.status = AssessmentStatus.PENDING_APPROVAL
+    else:
+        assessment.status = AssessmentStatus.SUBMITTED
+
+    audit.record(
+        db, actor=actor, action="assessment.hit_review", entity_type="assessment",
+        entity_id=assessment.case_no,
+        detail={
+            "confirmed_match": confirmed_match,
+            "note": assessment.hit_cleared_note,
+            "watchlist_hit_note": assessment.watchlist_hit_note,
+            "status": assessment.status.value,
+        },
+        ip=ip,
+    )
+    db.commit()
 
 
 def apply_result(assessment: Assessment, result: ScoreResult) -> None:
@@ -330,6 +384,7 @@ def submit(db: Session, assessment: Assessment, actor: User, ip: str | None = No
 
     - 未填完：拒絕送出。
     - 命中婉拒事由：狀態 BLOCKED，通知專責主管，業務員不得續辦。
+    - 曾命中制裁／資恐名單且尚未經洗防覆核：狀態 HIT_REVIEW，不進入其後任何流程。
     - 高風險：須先完成照會主管之紀錄，狀態 PENDING_APPROVAL，經主管同意始得建立業務關係。
     - 一般風險：狀態 SUBMITTED，直接完成。
     """
@@ -344,6 +399,11 @@ def submit(db: Session, assessment: Assessment, actor: User, ip: str | None = No
     apply_result(assessment, result)
     if result.blocked:
         assessment.status = AssessmentStatus.BLOCKED
+    elif needs_hit_review(assessment):
+        # 擋件依「當下」的姓名判定，改個寫法即解除；但命中的事實已經發生。
+        # 此關卡確保每一次制裁／資恐名單命中，都由洗防專責看過並留下結論，
+        # 而不是仰賴專責人員自行去翻儀表板上的命中清單。
+        assessment.status = AssessmentStatus.HIT_REVIEW
     elif result.level == "high":
         assessment.status = AssessmentStatus.PENDING_APPROVAL
     else:

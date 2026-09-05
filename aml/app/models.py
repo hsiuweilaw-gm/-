@@ -62,6 +62,9 @@ class AssessmentStatus(str, enum.Enum):
     APPROVED = "approved"        # 主管同意建立業務關係
     REJECTED = "rejected"        # 主管不同意
     BLOCKED = "blocked"          # 系統強制婉拒（範本第四點）
+    # 曾命中制裁／資恐名單者，送出後一律先由洗防專責覆核，不直接完成。
+    # 擋件依當下姓名判定，改名即解除；此關卡確保每一次命中都有人看過並留下結論。
+    HIT_REVIEW = "hit_review"    # 待洗防覆核（曾命中制裁／資恐名單）
     CLOSED = "closed"            # 案件結案／作廢（保留紀錄）
 
 
@@ -154,6 +157,12 @@ class Assessment(Base):
         DateTime(timezone=True), index=True
     )
     watchlist_hit_note: Mapped[str | None] = mapped_column(Text)
+    # 命中的是否為制裁／資恐名單（相對於 PEP）。此類命中送出後須經洗防專責覆核。
+    watchlist_hit_sanction: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 洗防專責之覆核結論。留存於案件本身，金檢時無須翻稽核軌跡即可查得。
+    hit_cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    hit_cleared_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    hit_cleared_note: Mapped[str | None] = mapped_column(Text)
 
     # 高風險案件之照會紀錄。業務員看不到分數，但跨越門檻時系統會警示，
     # 並要求其確認已照會單位主管後始得送出（內控手冊：確認為高風險時應立即通知主管備查及列管）。
@@ -193,6 +202,7 @@ class Assessment(Base):
     retain_until: Mapped[date | None] = mapped_column(Date)
 
     agent: Mapped[User] = relationship(foreign_keys=[agent_id])
+    hit_cleared_by: Mapped[User | None] = relationship(foreign_keys=[hit_cleared_by_id])
     answers: Mapped[list[Answer]] = relationship(
         back_populates="assessment", cascade="all, delete-orphan"
     )

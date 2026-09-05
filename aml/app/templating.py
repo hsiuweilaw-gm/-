@@ -18,6 +18,7 @@ STATUS_LABELS = {
     AssessmentStatus.APPROVED: "主管已同意",
     AssessmentStatus.REJECTED: "主管不同意",
     AssessmentStatus.BLOCKED: "已擋件",
+    AssessmentStatus.HIT_REVIEW: "待洗防覆核",
     AssessmentStatus.CLOSED: "結案",
 }
 STATUS_TONE = {
@@ -27,6 +28,7 @@ STATUS_TONE = {
     AssessmentStatus.APPROVED: "ok",
     AssessmentStatus.REJECTED: "danger",
     AssessmentStatus.BLOCKED: "danger",
+    AssessmentStatus.HIT_REVIEW: "danger",
     AssessmentStatus.CLOSED: "muted",
 }
 ROLE_LABELS = {

@@ -93,6 +93,7 @@ class PeriodSummary:
     general_risk_cases: int = 0
     blocked_cases: int = 0
     pending_approval_cases: int = 0
+    hit_review_cases: int = 0
     approved_high_risk: int = 0
     rejected_cases: int = 0
     override_cases: int = 0
@@ -193,6 +194,8 @@ def summarize(
             summary.blocked_cases += 1
         elif case.status == AssessmentStatus.PENDING_APPROVAL:
             summary.pending_approval_cases += 1
+        elif case.status == AssessmentStatus.HIT_REVIEW:
+            summary.hit_review_cases += 1
         elif case.status == AssessmentStatus.APPROVED:
             summary.approved_high_risk += 1
         elif case.status == AssessmentStatus.REJECTED:

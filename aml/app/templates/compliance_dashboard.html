@@ -14,6 +14,8 @@
     <div class="label">高風險件數（{{ "%.1f%%"|format(summary.high_risk_ratio * 100) }}）</div></div>
   <div class="stat warn"><div class="value">{{ summary.pending_approval_cases }}</div>
     <div class="label">待主管同意</div></div>
+  <div class="stat danger"><div class="value">{{ summary.hit_review_cases }}</div>
+    <div class="label">待洗防覆核</div></div>
   <div class="stat danger"><div class="value">{{ summary.blocked_cases }}</div>
     <div class="label">應婉拒擋件</div></div>
 </div>

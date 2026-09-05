@@ -469,3 +469,36 @@ def test_auditor_can_view_but_not_record_reviews(client, db):
     login(client, "audit02")
     assert client.get("/compliance/reviews").status_code == 200
     assert client.post("/compliance/reviews/rescreen").status_code == 403
+
+
+def test_only_compliance_may_close_a_watchlist_hit(client, db, agent, supervisor,
+                                                   compliance, q):
+    """放行制裁名單命中屬第二道防線之權責，業務端與單位主管不得為之。"""
+    from app.services import screening
+
+    screening.add_entry(db, "sanction", "制裁對象公司", source="TW", external_id="T-11")
+    db.commit()
+    case = svc.create_draft(db, agent)
+    for factor in q.factors:
+        svc.save_answer(db, case, agent, factor.code,
+                        min(factor.options, key=lambda o: o.score).code)
+    svc.save_profile(db, case, agent, {"holder_name": "制裁對象公司"})
+    svc.save_profile(db, case, agent, {"holder_name": "改過的名字"})
+    svc.submit(db, case, agent)
+    assert case.status == AssessmentStatus.HIT_REVIEW
+
+    payload = {"decision": "cleared", "note": "同名誤判"}
+    login(client, "agent01")
+    assert client.post(f"/compliance/cases/{case.case_no}/hit-review",
+                       data=payload).status_code == 403
+    login(client, "sup01")
+    assert client.post(f"/compliance/cases/{case.case_no}/hit-review",
+                       data=payload).status_code == 403
+    assert case.status == AssessmentStatus.HIT_REVIEW
+
+    login(client, "aml01")
+    res = client.post(f"/compliance/cases/{case.case_no}/hit-review",
+                      data=payload, follow_redirects=False)
+    assert res.status_code == 303
+    db.refresh(case)
+    assert case.status == AssessmentStatus.SUBMITTED

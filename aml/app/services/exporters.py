@@ -30,6 +30,7 @@ STATUS_LABELS = {
     AssessmentStatus.APPROVED: "主管已同意",
     AssessmentStatus.REJECTED: "主管不同意",
     AssessmentStatus.BLOCKED: "系統擋件（應婉拒）",
+    AssessmentStatus.HIT_REVIEW: "待洗防覆核（曾命中制裁／資恐名單）",
     AssessmentStatus.CLOSED: "結案",
 }
 LEVEL_LABELS = {RiskLevel.HIGH: "高風險", RiskLevel.GENERAL: "一般風險"}
