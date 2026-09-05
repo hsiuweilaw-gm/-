@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     # 雙因素驗證。系統存有客戶身分證字號，對外開放時僅靠帳密不足；
     # 設為 false 僅供封閉內網之教育訓練環境使用。
     totp_required: bool = True
+    # 應用程式前方有幾層反向代理。
+    #
+    # X-Forwarded-For 的左半段完全由客戶端控制：Nginx 的 $proxy_add_x_forwarded_for
+    # 是把真實來源「接在後面」，客戶端自己先塞一個值進去，最左邊那段就是偽造的。
+    # 取值必須從右邊往回數，數幾層由此設定決定，不能猜。
+    #
+    #   0 = 直接對外（無代理），一律以連線對端為準，完全忽略此標頭
+    #   1 = 前方一層反向代理（README 所述之標準部署）
+    #   2 = 例如 CDN 之後再接自架反向代理
+    trusted_proxy_hops: int = 1
+
     # 同一來源位址在時間窗內允許的登入嘗試次數（含密碼與一次性密碼）。
     # 帳號鎖定只擋單一帳號，擋不住換帳號輪流嘗試。
     login_attempts_per_ip: int = 30

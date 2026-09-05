@@ -213,3 +213,55 @@ def test_repeated_attempts_from_one_address_are_throttled(client, db, totp_on):
     res = client.post("/login", data={"username": "agent01", "password": PASSWORD},
                       follow_redirects=False)
     assert res.status_code == 429, "同一位置嘗試次數過多時應擋下，不論帳號是否存在"
+
+
+class _FakeClient:
+    def __init__(self, host: str) -> None:
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, peer: str, forwarded: str | None = None) -> None:
+        self.client = _FakeClient(peer)
+        self.headers = {"x-forwarded-for": forwarded} if forwarded else {}
+
+
+def test_forwarded_for_is_read_from_the_right_not_the_left(monkeypatch):
+    """X-Forwarded-For 的左半段由客戶端自行填寫，不可信。
+
+    Nginx 的 $proxy_add_x_forwarded_for 是把真實來源接在後面。取最左邊
+    那一段等於讓對方自報來源：稽核軌跡的位址會被偽造，來源位址限流
+    也能靠輪流換偽造標頭完全繞過。
+    """
+    from app.routers.auth import client_ip
+
+    monkeypatch.setenv("AML_TRUSTED_PROXY_HOPS", "1")
+    get_settings.cache_clear()
+    forged = _FakeRequest("10.0.0.9", forwarded="8.8.8.8, 203.0.113.7")
+    assert client_ip(forged) == "203.0.113.7", "應取代理接上的真實來源，而非客戶端自填值"
+
+    assert client_ip(_FakeRequest("10.0.0.9", forwarded="203.0.113.7")) == "203.0.113.7"
+    assert client_ip(_FakeRequest("10.0.0.9")) == "10.0.0.9", "無此標頭時以連線對端為準"
+    get_settings.cache_clear()
+
+
+def test_forwarded_for_is_ignored_when_there_is_no_proxy(monkeypatch):
+    """直接對外時，任何人都能自訂此標頭，一律不採信。"""
+    from app.routers.auth import client_ip
+
+    monkeypatch.setenv("AML_TRUSTED_PROXY_HOPS", "0")
+    get_settings.cache_clear()
+    assert client_ip(_FakeRequest("203.0.113.9", forwarded="8.8.8.8")) == "203.0.113.9"
+    get_settings.cache_clear()
+
+
+def test_two_proxy_layers_are_supported(monkeypatch):
+    from app.routers.auth import client_ip
+
+    monkeypatch.setenv("AML_TRUSTED_PROXY_HOPS", "2")
+    get_settings.cache_clear()
+    request = _FakeRequest("10.0.0.9", forwarded="8.8.8.8, 203.0.113.7, 10.0.0.5")
+    assert client_ip(request) == "203.0.113.7"
+    # 標頭比預期短表示代理鏈與設定不符，退回連線對端而非猜測。
+    assert client_ip(_FakeRequest("10.0.0.9", forwarded="203.0.113.7")) == "10.0.0.9"
+    get_settings.cache_clear()
