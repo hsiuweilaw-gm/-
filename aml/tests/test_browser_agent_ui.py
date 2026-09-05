@@ -103,6 +103,18 @@ def page(live_server):
         browser.close()
 
 
+def _expect_text(locator, expected: str, message: str, timeout: int = 8000) -> None:
+    """等到文字變成預期值為止，逾時才判定失敗。
+
+    固定等待毫秒數的寫法在 CI 機器負載高時會偽陽性——存檔的往返還沒回來
+    就檢查了。週期性的假警報比沒有測試更糟：紅燈久了就沒人看。
+    """
+    try:
+        playwright_api.expect(locator).to_have_text(expected, timeout=timeout)
+    except AssertionError as exc:
+        raise AssertionError(f"{message}（等待逾時，實得「{locator.inner_text()}」）") from exc
+
+
 def _login(page, base, username):
     page.goto(f"{base}/login")
     page.fill("#username", username)
@@ -129,9 +141,8 @@ def test_agent_ui_hides_score_and_gates_submit_on_consultation(db, live_server, 
         el = page.locator(f"input[name='{factor.code}'][value='{option}']")
         el.scroll_into_view_if_needed()
         el.check()
-        page.wait_for_timeout(260)
-        assert page.locator("#score-count").inner_text() == f"{index} / {len(q.factors)}", \
-            "填答進度必須隨作答更新——若 render() 沒被呼叫，畫面會完全停住"
+        _expect_text(page.locator("#score-count"), f"{index} / {len(q.factors)}",
+                     "填答進度必須隨作答更新——若 render() 沒被呼叫，畫面會完全停住")
         if crossed_at is None and page.locator("#score-notice").inner_text().strip():
             crossed_at = index
 
@@ -146,8 +157,7 @@ def test_agent_ui_hides_score_and_gates_submit_on_consultation(db, live_server, 
 
     page.fill("#supervisor_name", "陳經理")
     page.click("#consult-btn")
-    page.wait_for_timeout(900)
-    assert not page.locator("#submit-btn").is_disabled(), "完成照會後應開放送出"
+    playwright_api.expect(page.locator("#submit-btn")).to_be_enabled(timeout=8000)
     assert "陳經理" in page.locator("#consult-done").inner_text()
 
 
@@ -171,9 +181,7 @@ def test_bad_premium_is_named_and_does_not_block_answers(db, live_server, page):
 
     page.fill("#annual_premium", "500萬")
     page.locator("#policy_no").focus()          # 觸發 focusout，立即存檔
-    page.wait_for_timeout(400)
-
-    assert page.locator("#annual_premium_error").is_visible(), "須就地指出是哪一格有問題"
+    playwright_api.expect(page.locator("#annual_premium_error")).to_be_visible(timeout=8000)
     assert "5000000" in page.locator("#annual_premium_error").inner_text()
     assert "invalid" in (page.locator("#annual_premium").get_attribute("class") or "")
 
@@ -181,15 +189,13 @@ def test_bad_premium_is_named_and_does_not_block_answers(db, live_server, page):
     el = page.locator(f"input[name='{factor.code}'][value='{HIGH_RISK[factor.code]}']")
     el.scroll_into_view_if_needed()
     el.check()
-    page.wait_for_timeout(400)
-    assert page.locator("#score-count").inner_text() == f"1 / {len(q.factors)}", \
-        "保費格式錯誤不得波及作答儲存"
+    _expect_text(page.locator("#score-count"), f"1 / {len(q.factors)}",
+                 "保費格式錯誤不得波及作答儲存")
 
     page.fill("#annual_premium", "5000000")
     page.locator("#policy_no").focus()
-    page.wait_for_timeout(600)
-    assert page.locator("#annual_premium_error").is_hidden()
-    assert "已儲存" in page.locator("#savehint").inner_text()
+    playwright_api.expect(page.locator("#annual_premium_error")).to_be_hidden(timeout=8000)
+    playwright_api.expect(page.locator("#savehint")).to_contain_text("已儲存", timeout=8000)
 
 
 def test_rejected_request_reports_reason_and_queue_keeps_running(db, live_server, page):
@@ -214,15 +220,11 @@ def test_rejected_request_reports_reason_and_queue_keeps_running(db, live_server
     bad = page.locator(f"input[name='{first.code}']").first
     bad.evaluate("el => el.value = 'not-a-real-option'")
     bad.check()
-    page.wait_for_timeout(500)
-
-    hint = page.locator("#savehint").inner_text()
-    assert "未知的選項" in hint, f"必須說明真正的原因，實得：{hint}"
-    assert "網路" not in hint, "驗證錯誤不得誤導為網路問題"
+    playwright_api.expect(page.locator("#savehint")).to_contain_text("未知的選項", timeout=8000)
+    assert "網路" not in page.locator("#savehint").inner_text(), "驗證錯誤不得誤導為網路問題"
 
     el = page.locator(f"input[name='{second.code}'][value='{HIGH_RISK[second.code]}']")
     el.scroll_into_view_if_needed()
     el.check()
-    page.wait_for_timeout(500)
-    assert page.locator("#score-count").inner_text() == f"1 / {len(q.factors)}", \
-        "被拒絕的那一筆不得堵住後續作答"
+    _expect_text(page.locator("#score-count"), f"1 / {len(q.factors)}",
+                 "被拒絕的那一筆不得堵住後續作答")
