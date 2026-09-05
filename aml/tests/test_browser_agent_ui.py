@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import socket
 import threading
 import time
@@ -24,9 +25,6 @@ from .conftest import make_user
 
 playwright_api = pytest.importorskip("playwright.sync_api")
 
-BROWSER = os.environ.get(
-    "AML_TEST_CHROMIUM", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
-)
 PASSWORD = "correct-horse-battery"
 HIGH_RISK = {
     "geo_domicile": "overseas", "geo_nationality": "foreign", "cust_occupation": "tier1",
@@ -34,6 +32,32 @@ HIGH_RISK = {
     "product_type": "oiu", "txn_channel": "online", "txn_fund_source": "borrowed",
     "txn_payer": "third_party",
 }
+
+
+def _chromium_path() -> str | None:
+    """找出可用的 Chromium。
+
+    依序嘗試：環境變數指定的路徑、Playwright 自己解析的路徑、
+    以及瀏覽器安裝目錄下任何一個 chromium 執行檔。
+    最後一項是必要的：預先安裝的瀏覽器版本未必與 Playwright 套件版本相符，
+    此時 Playwright 解析出的路徑並不存在。
+    """
+    override = os.environ.get("AML_TEST_CHROMIUM")
+    if override and os.path.exists(override):
+        return override
+
+    with playwright_api.sync_playwright() as p:
+        resolved = p.chromium.executable_path
+    if resolved and os.path.exists(resolved):
+        return resolved
+
+    root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if root and os.path.isdir(root):
+        for candidate in sorted(pathlib.Path(root).glob("chromium-*/chrome-linux*/chrome"),
+                                reverse=True):
+            if candidate.exists():
+                return str(candidate)
+    return None
 
 
 def _free_port() -> int:
@@ -69,10 +93,11 @@ def live_server(db):
 
 @pytest.fixture
 def page(live_server):
-    if not os.path.exists(BROWSER):
-        pytest.skip(f"找不到 Chromium：{BROWSER}")
+    executable = _chromium_path()
+    if executable is None:
+        pytest.skip("找不到 Chromium，請先執行 playwright install chromium")
     with playwright_api.sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=BROWSER)
+        browser = p.chromium.launch(executable_path=executable)
         context = browser.new_context(viewport={"width": 390, "height": 844}, locale="zh-TW")
         yield context.new_page()
         browser.close()

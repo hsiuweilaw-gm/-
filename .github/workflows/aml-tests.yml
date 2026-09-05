@@ -62,12 +62,8 @@ jobs:
 
       - name: 安裝瀏覽器
         # 業務員畫面隱藏分數的防線在前端 JavaScript，需真實瀏覽器驗證。
-        run: |
-          playwright install --with-deps chromium
-          echo "AML_TEST_CHROMIUM=$(python -c "
-          from playwright.sync_api import sync_playwright
-          with sync_playwright() as p: print(p.chromium.executable_path)
-          ")" >> "$GITHUB_ENV"
+        # 瀏覽器路徑由測試自行解析，這裡只負責安裝。
+        run: playwright install --with-deps chromium
 
       - name: 靜態檢查
         run: ruff check app scripts tests
