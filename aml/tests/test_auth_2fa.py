@@ -265,3 +265,67 @@ def test_two_proxy_layers_are_supported(monkeypatch):
     # 標頭比預期短表示代理鏈與設定不符，退回連線對端而非猜測。
     assert client_ip(_FakeRequest("10.0.0.9", forwarded="203.0.113.7")) == "10.0.0.9"
     get_settings.cache_clear()
+
+
+def test_privileged_roles_are_confined_to_the_allowlist(client, db, monkeypatch):
+    """洗防、稽核、管理者看得到個資明文，其存取限於公司核准之位址。
+
+    這是應用層的內鎖；反向代理是外牆。任何一層設定掉了，另一層還在，
+    而且這一層擋下時會留下稽核軌跡，金融檢查時看得到。
+    """
+    from app.services import audit
+
+    monkeypatch.setenv("AML_PRIVILEGED_IP_ALLOWLIST", "203.0.113.0/24")
+    monkeypatch.setenv("AML_TRUSTED_PROXY_HOPS", "1")
+    get_settings.cache_clear()
+    ratelimit.clear()
+
+    make_user(db, "aml01", Role.COMPLIANCE, None)
+    make_user(db, "agent01", Role.AGENT, None)
+
+    password_login(client, "aml01")
+    outside = {"x-forwarded-for": "8.8.8.8, 198.51.100.4"}
+    assert client.get("/compliance", headers=outside,
+                      follow_redirects=False).status_code == 403
+
+    inside = {"x-forwarded-for": "8.8.8.8, 203.0.113.20"}
+    assert client.get("/compliance", headers=inside,
+                      follow_redirects=False).status_code == 200
+
+    # 第一線不受此限：業務員本來就在外面招攬
+    client.cookies.clear()
+    password_login(client, "agent01")
+    assert client.get("/assessments", headers=outside,
+                      follow_redirects=False).status_code == 200
+
+    actions = [e.action for e in audit.trail(db, "user", "aml01")]
+    assert "auth.blocked_address" in actions, "擋下必須留痕——這是憑證外洩的重要徵候"
+
+    get_settings.cache_clear()
+    ratelimit.clear()
+
+
+def test_an_empty_allowlist_restricts_nobody(client, db, monkeypatch):
+    """試辦階段或尚未確定公司位址時，留空即不啟用。"""
+    monkeypatch.setenv("AML_PRIVILEGED_IP_ALLOWLIST", "")
+    get_settings.cache_clear()
+    ratelimit.clear()
+
+    make_user(db, "aml01", Role.COMPLIANCE, None)
+    password_login(client, "aml01")
+    assert client.get("/compliance", headers={"x-forwarded-for": "8.8.8.8, 198.51.100.4"},
+                      follow_redirects=False).status_code == 200
+
+    get_settings.cache_clear()
+    ratelimit.clear()
+
+
+def test_a_malformed_entry_does_not_silently_disable_the_whole_list(monkeypatch):
+    """設定寫錯時寧可少一項而擋下，也不要整串失效而變成不設限。"""
+    from app.net import ip_allowed
+
+    allowlist = "203.0.113.0/24, 這不是位址, 198.51.100.7"
+    assert ip_allowed("203.0.113.5", allowlist) is True
+    assert ip_allowed("198.51.100.7", allowlist) is True
+    assert ip_allowed("8.8.8.8", allowlist) is False
+    assert ip_allowed(None, allowlist) is False

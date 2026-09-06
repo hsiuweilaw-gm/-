@@ -12,10 +12,16 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .db import SessionLocal, assert_schema_current
-from .deps import OnboardingRequired, current_user_optional, pending_step
+from .deps import (
+    OnboardingRequired,
+    PrivilegedAddressBlocked,
+    current_user_optional,
+    pending_step,
+)
 from .models import Role, User
 from .routers import admin, api, assessments, auth, compliance, reports, review
 from .security import hash_password
+from .services import audit
 
 log = logging.getLogger("aml")
 
@@ -39,6 +45,26 @@ app.include_router(review.router)
 app.include_router(compliance.router)
 app.include_router(reports.router)
 app.include_router(admin.router)
+
+
+@app.exception_handler(PrivilegedAddressBlocked)
+async def privileged_address_blocked(request: Request, exc: PrivilegedAddressBlocked):
+    """高權限角色自未經核准的位址存取：擋下並留痕。
+
+    留痕本身就是價值——洗防或稽核的帳號從外部被使用，是憑證外洩的
+    重要徵候，必須看得到。
+    """
+    with SessionLocal() as db:
+        audit.record(db, actor=exc.user, action="auth.blocked_address", entity_type="user",
+                     entity_id=exc.user.username, detail={"path": request.url.path}, ip=exc.ip)
+        db.commit()
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": "此帳號僅限自公司核准之位址使用"}, status_code=403)
+    return HTMLResponse(
+        "<h1>存取遭拒</h1><p>此帳號僅限自公司核准之位址使用。"
+        "若您人在公司內仍看到本訊息，請聯絡資訊人員確認設定。</p>",
+        status_code=403,
+    )
 
 
 @app.exception_handler(OnboardingRequired)

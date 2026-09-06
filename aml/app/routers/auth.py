@@ -21,35 +21,13 @@ from ..deps import (
     register_failed_login,
 )
 from ..models import User, utcnow
+from ..net import client_ip
 from ..security import decrypt_pii, encrypt_pii, hash_password, verify_password
 from ..services import audit
 from ..templating import templates
 
 router = APIRouter()
 MIN_PASSWORD_LENGTH = 12
-
-
-def client_ip(request: Request) -> str | None:
-    """判定請求的真實來源位址。
-
-    X-Forwarded-For 的左半段由客戶端自行填寫，取最左邊那一段等於讓對方
-    自報來源——稽核軌跡的位址會被偽造，來源位址限流與白名單也一併失效。
-    正確作法是從右邊往回數，數幾層由 trusted_proxy_hops 指定；
-    設為 0 時完全忽略此標頭，一律以連線對端為準。
-    """
-    peer = request.client.host if request.client else None
-    hops = get_settings().trusted_proxy_hops
-    if hops <= 0:
-        return peer
-
-    forwarded = request.headers.get("x-forwarded-for")
-    if not forwarded:
-        return peer
-    parts = [part.strip() for part in forwarded.split(",") if part.strip()]
-    if len(parts) < hops:
-        # 標頭比預期短，代表未經預期的代理鏈，寧可退回連線對端。
-        return peer
-    return parts[-hops]
 
 
 @router.get("/login", response_class=HTMLResponse)

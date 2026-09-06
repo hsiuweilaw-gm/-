@@ -18,7 +18,19 @@ log = logging.getLogger("aml.db")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 _settings = get_settings()
-_connect_args = {"check_same_thread": False} if _settings.database_url.startswith("sqlite") else {}
+if _settings.database_url.startswith("sqlite"):
+    _connect_args: dict = {"check_same_thread": False}
+else:
+    # 關閉 psycopg 的自動預備語句。
+    #
+    # 預備語句的執行計畫綁定當時的資料表結構。連線是共用且長壽的，一旦
+    # 在服務運行中套用遷移（新增或移除欄位），既有連線上的舊計畫就會失效，
+    # PostgreSQL 回以「cached plan must not change result type」，直到重啟
+    # 才恢復——正好發生在剛升級完、最不希望出事的時刻。
+    #
+    # 本系統的查詢都很輕，關閉預備語句的代價可忽略；日後若在前方置放
+    # PgBouncer（transaction 模式），本來也必須關閉。
+    _connect_args = {"prepare_threshold": None}
 
 engine = create_engine(_settings.database_url, connect_args=_connect_args, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

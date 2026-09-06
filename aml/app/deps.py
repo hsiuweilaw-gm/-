@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import get_db
 from .models import Assessment, Role, User, as_aware, utcnow
+from .net import client_ip, ip_allowed
 
 SESSION_COOKIE = "aml_session"
 # 密碼已驗證、尚待一次性密碼的中繼憑證。刻意與正式工作階段分開，
@@ -55,6 +56,15 @@ def read_pending(token: str) -> dict | None:
         return None
 
 
+class PrivilegedAddressBlocked(Exception):
+    """高權限角色自未經核准的位址存取。"""
+
+    def __init__(self, user: User, ip: str | None) -> None:
+        self.user = user
+        self.ip = ip
+        super().__init__(f"{user.username}@{ip}")
+
+
 class OnboardingRequired(Exception):
     """帳號尚有未完成的必辦事項（改密碼、設定雙因素），須先導向該頁。"""
 
@@ -92,15 +102,28 @@ def current_user_any(user: User | None = Depends(current_user_optional)) -> User
     return user
 
 
-def current_user(user: User = Depends(current_user_any)) -> User:
-    """已登入且必辦事項均已完成。
+# 看得到個資明文、可匯出全公司報表、可管理帳號的角色。
+PRIVILEGED_ROLES = (Role.COMPLIANCE, Role.AUDITOR, Role.ADMIN)
+
+
+def current_user(request: Request, user: User = Depends(current_user_any)) -> User:
+    """已登入、必辦事項均已完成，且來源位址符合該角色的限制。
 
     必辦事項若只在首頁檢查，使用者直接輸入其他網址即可略過——
     這道檢查因此放在相依項，涵蓋每一個受保護的頁面。
+
+    來源位址限制同理放在這裡：反向代理是外牆，這裡是內鎖。任何一層
+    設定掉了，另一層還在；而且這一層的規則與程式一起版控、擋下時會
+    留下稽核軌跡，金融檢查時看得到。
     """
     step = pending_step(user)
     if step:
         raise OnboardingRequired(step)
+
+    if user.role in PRIVILEGED_ROLES:
+        allowlist = get_settings().privileged_ip_allowlist
+        if not ip_allowed(client_ip(request), allowlist):
+            raise PrivilegedAddressBlocked(user, client_ip(request))
     return user
 
 

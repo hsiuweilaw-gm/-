@@ -16,6 +16,9 @@
     <div class="label">待主管同意</div></div>
   <div class="stat danger"><div class="value">{{ summary.hit_review_cases }}</div>
     <div class="label">待洗防覆核</div></div>
+  <div class="stat {{ 'danger' if login_signal_serious else 'warn' if login_signal_total else '' }}">
+    <div class="value">{{ login_signal_total }}</div>
+    <div class="label"><a href="/compliance/anomalies">登入異常（近 30 天）</a></div></div>
   <div class="stat danger"><div class="value">{{ summary.blocked_cases }}</div>
     <div class="label">應婉拒擋件</div></div>
 </div>

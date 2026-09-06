@@ -40,6 +40,7 @@ from ..services import (
     anomalies,
     assessments,
     audit,
+    login_anomalies,
     reviews,
     sanctions_import,
     screening,
@@ -99,6 +100,7 @@ def dashboard(request: Request, db: Session = Depends(get_db),
 
     # 只掃描近 90 天，避免每次開啟儀表板都全表掃描。
     signals = anomalies.scan(db, since=utcnow() - timedelta(days=90), limit=200)
+    login_signals = login_anomalies.scan(db, since=utcnow() - timedelta(days=30), limit=200)
 
     return templates.TemplateResponse(
         request, "compliance_dashboard.html",
@@ -112,6 +114,8 @@ def dashboard(request: Request, db: Session = Depends(get_db),
             "abandoned": abandoned,
             "signals": signals[:20],
             "signal_total": len(signals),
+            "login_signal_total": len(login_signals),
+            "login_signal_serious": sum(1 for s in login_signals if s.severity >= 3),
             "org_names": _org_names(db),
             "risk_band": aggregate.risk_band,
         },
@@ -368,10 +372,15 @@ def remove_watchlist(request: Request, entry_id: int, db: Session = Depends(get_
 @router.get("/anomalies", response_class=HTMLResponse)
 def anomaly_list(request: Request, days: int = Query(90, ge=1, le=730),
                  db: Session = Depends(get_db), user: User = Depends(require_oversight)):
-    signals = anomalies.scan(db, since=utcnow() - timedelta(days=days), limit=500)
+    since = utcnow() - timedelta(days=days)
     return templates.TemplateResponse(
         request, "compliance_anomalies.html",
-        {"user": user, "signals": signals, "days": days},
+        {
+            "user": user,
+            "days": days,
+            "signals": anomalies.scan(db, since=since, limit=500),
+            "login_signals": login_anomalies.scan(db, since=since, limit=200),
+        },
     )
 
 
