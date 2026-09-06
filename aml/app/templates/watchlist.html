@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}名單管理{% endblock %}
+{% block content %}
+<h1>制裁、資恐與高風險名單管理</h1>
+
+{% if import_error %}<div class="alert danger">{{ import_error }}</div>{% endif %}
+{% if import_result %}
+<div class="alert info">
+  <strong>匯入完成（批次 {{ import_result.batch }}）：</strong>
+  對象 {{ import_result.entries }} 筆、可比對名稱 {{ import_result.names }} 筆。
+  {% if import_result.deactivated %}同來源舊資料停用 {{ import_result.deactivated }} 筆。{% endif %}
+  {% if import_result.skipped %}略過無有效名稱 {{ import_result.skipped }} 筆。{% endif %}
+  <ul>{% for src, n in import_result.by_source.items() %}<li>{{ src }}：{{ n }} 筆</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="grid cols-4" style="margin-bottom:1rem">
+  <div class="stat"><div class="value">{{ summary.entries }}</div><div class="label">生效名單對象</div></div>
+  <div class="stat"><div class="value">{{ summary.names }}</div>
+    <div class="label">可比對名稱（含中文與別名）</div></div>
+  {% for key, label in list_types.items() %}
+    {% if summary.by_type.get(key) %}
+    <div class="stat"><div class="value">{{ summary.by_type.get(key, 0) }}</div>
+      <div class="label">{{ label }}</div></div>
+    {% endif %}
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>比對規則</h2>
+  <p class="muted">
+    比對方向固定為「<strong>名單上的名稱出現在客戶姓名之中</strong>」，永不反向 ——
+    否則客戶姓「陳」會命中名單上的「陳世憲」，全公司客戶都會被標紅。
+    比對對象為要保人、被保險人與受益人三個欄位，每次存檔、開啟案件與送出時執行，且不快取。
+  </p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>命中強度</th><th>判定</th><th>處置</th></tr></thead>
+    <tbody>
+      <tr><td>完全相符</td><td>客戶姓名整串等於名單上的名稱</td>
+        <td><span class="tag danger">應婉拒</span> 系統擋件並通知專責主管</td></tr>
+      <tr><td>部分相符</td><td>名單名稱為客戶姓名的一部分（如公司全名含名單名稱）</td>
+        <td><span class="tag warn">強制高風險</span> 須人工複核，不逕行擋件</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">
+    「高風險國家／地區」名單不參與姓名比對 —— 拿國名比對客戶姓名沒有意義，
+    國別風險由問卷的地域與國籍因子及強制勾選題涵蓋。
+  </p>
+</div>
+
+{% if can_edit %}
+<form method="post" action="/compliance/watchlist/import" enctype="multipart/form-data" class="card">
+  <h2>匯入名單檔</h2>
+  <p class="muted">
+    支援制裁名單篩查系統產出的 .xlsx（預設讀「全部清單」工作表）與同欄位的 .csv。
+    欄位：來源清單、編號、類型、姓名/名稱(原文)、中文、別名、國家/地區、依據/計畫、
+    列管日期、狀態、備註。狀態為「已除名」者匯入後自動停用，不再觸發警示。
+  </p>
+  <p class="muted">
+    預設會<strong>停用同來源的舊批次</strong>，以反映名單上的移除。
+    若本次只是補充而非完整更新，請勾選下方保留選項。
+  </p>
+  <div class="field">
+    <label for="file">選擇名單檔</label>
+    <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.csv" required>
+  </div>
+  <label style="display:flex;gap:.5rem;align-items:center;font-size:.9rem;color:var(--ink)">
+    <input type="checkbox" name="keep_old" value="1"> 保留同來源的舊批次（不停用）
+  </label>
+  <div class="btn-row" style="margin-top:.8rem"><button type="submit">匯入</button></div>
+</form>
+
+<form method="post" action="/compliance/watchlist" class="card">
+  <h2>手動新增（單筆或少量）</h2>
+  <div class="grid cols-2">
+    <div class="field">
+      <label for="list_type">名單類別</label>
+      <select id="list_type" name="list_type" required>
+        {% for key, label in list_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="source">名單來源（如：金管會 114.11.20 函轉 FATF 公告）</label>
+      <input type="text" id="source" name="source">
+    </div>
+  </div>
+  <div class="field">
+    <label for="values">名單內容（每行一筆）</label>
+    <textarea id="values" name="values" required></textarea>
+  </div>
+  <button type="submit">新增</button>
+</form>
+{% endif %}
+
+<div class="card">
+  <h2>名單查詢</h2>
+  <form method="get" action="/compliance/watchlist" class="btn-row" style="margin-bottom:1rem">
+    <input type="text" name="q" value="{{ keyword or '' }}" placeholder="輸入姓名、名稱或別名"
+           style="max-width:22rem">
+    <button type="submit">搜尋</button>
+    {% if keyword %}<a class="btn secondary" href="/compliance/watchlist">清除</a>{% endif %}
+  </form>
+  <p class="muted">
+    共 {{ total }} 筆生效名單對象。{% if keyword %}以下為符合「{{ keyword }}」者{% else %}以下為最近匯入的 200 筆{% endif %}，
+    完整名單請以搜尋查詢。
+  </p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>類別</th><th>來源</th><th>編號</th><th>名稱</th><th>中文</th>
+      <th>類型</th><th>依據／計畫</th><th>列管日期</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+    <tbody>{% for e in entries %}
+      <tr>
+        <td>{{ list_types.get(e.list_type, e.list_type) }}</td>
+        <td>{{ e.source or "－" }}</td>
+        <td class="muted">{{ e.external_id or "－" }}</td>
+        <td>{{ e.value }}</td>
+        <td>{{ e.name_zh or "－" }}</td>
+        <td class="muted">{{ e.entity_type or "－" }}</td>
+        <td class="muted">{{ (e.program or "－")[:40] }}</td>
+        <td class="muted">{{ e.listed_on or "－" }}</td>
+        {% if can_edit %}
+        <td><form method="post" action="/compliance/watchlist/{{ e.id }}/remove">
+          <button class="secondary" style="padding:.2rem .6rem;font-size:.8rem">停用</button></form></td>
+        {% endif %}
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="muted">停用之名單不會刪除，以保留曾經比對之依據。</p>
+</div>
+{% endblock %}

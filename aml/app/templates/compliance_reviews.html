@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}定期審查{% endblock %}
+{% block content %}
+<h1>既有客戶定期審查</h1>
+
+{% if request.query_params.get('checked') %}
+<div class="alert info">
+  重新篩檢完成：檢視 {{ request.query_params.get('checked') }} 件，
+  新增命中 <strong>{{ request.query_params.get('hits') }}</strong> 件。
+  {% if request.query_params.get('hits') != '0' %}命中案件已列入儀表板的命中清單。{% endif %}
+</div>
+{% endif %}
+
+<div class="alert info">
+  範本第五點第一款第三目要求對業務往來關係採取<strong>強化之持續監督</strong>；
+  問答集 Q8 要求定期檢視客戶及實質受益人身分資料是否足夠並確保更新，特別是高風險客戶。
+  招攬當下評估一次不足以滿足這項要求。
+</div>
+
+<div class="grid cols-3" style="margin-bottom:1rem">
+  <div class="stat {{ 'danger' if overdue }}"><div class="value">{{ overdue|length }}</div>
+    <div class="label">已逾期未審查</div></div>
+  <div class="stat warn"><div class="value">{{ due|length }}</div>
+    <div class="label">待審查（含逾期）</div></div>
+  <div class="stat"><div class="value">{{ recent|length }}</div>
+    <div class="label">最近審查紀錄</div></div>
+</div>
+
+{% if can_review %}
+<form method="post" action="/compliance/reviews/rescreen" class="card">
+  <h2>以當下名單重新篩檢</h2>
+  <p class="muted">
+    名單每月更新，既有客戶可能在事後才被列入。此作業以目前生效的名單重新比對所有仍在
+    監督中的案件，只標記<strong>先前未命中、現在命中</strong>者——先前已命中的案件早已在待辦清單上。
+    命中結果會出現在儀表板的命中清單。建議於每次名單匯入後執行，或由排程每月執行
+    <code>python -m scripts.run_rescreen</code>。
+  </p>
+  <button type="submit">開始重新篩檢</button>
+</form>
+{% endif %}
+
+<div class="card">
+  <h2>待審查案件（{{ due|length }} 件）</h2>
+  {% if due %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>單位</th><th>應審查日</th>
+      <th>目前等級</th><th>上次審查</th>{% if can_review %}<th>審查結論</th>{% endif %}</tr></thead>
+    <tbody>{% for c in due %}
+      <tr {% if c.review_due_on and c.review_due_on < today %}class="flagged"{% endif %}>
+        <td><a href="/compliance/cases/{{ c.case_no }}">{{ c.case_no }}</a></td>
+        <td>{{ c.agent.display_name }}</td>
+        <td>{{ org_names.get(c.org_unit_id, "－") }}</td>
+        <td>{{ c.review_due_on }}
+          {% if c.review_due_on and c.review_due_on < today %}
+            <span class="tag danger">逾期 {{ (today - c.review_due_on).days }} 天</span>
+          {% endif %}</td>
+        <td>{% if c.risk_level %}<span class="tag {{ 'danger' if c.risk_level == RiskLevel.HIGH else 'ok' }}">
+          {{ LEVEL_LABELS[c.risk_level] }}</span>{% endif %}</td>
+        <td class="muted">{{ c.last_reviewed_on or "尚未審查" }}</td>
+        {% if can_review %}
+        <td>
+          <form method="post" action="/compliance/reviews/{{ c.case_no }}">
+            <select name="outcome" required style="width:11rem;padding:.3rem;font-size:.82rem">
+              {% for o in outcomes %}
+                <option value="{{ o.value }}">{{ REVIEW_OUTCOMES[o] }}</option>
+              {% endfor %}
+            </select>
+            <input type="text" name="note" placeholder="審查意見"
+                   style="width:12rem;padding:.3rem;font-size:.82rem;margin-top:.25rem">
+            <button style="padding:.25rem .7rem;font-size:.8rem;margin-top:.25rem">記錄</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">目前沒有到期的案件。</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>最近審查紀錄</h2>
+  {% if recent %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>審查時間</th><th>案號</th><th>審查人</th><th>結論</th>
+      <th>等級變動</th><th>曾命中名單</th><th>下次應審查</th><th>意見</th></tr></thead>
+    <tbody>{% for r in recent %}
+      <tr>
+        <td class="muted">{{ r.performed_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td><a href="/compliance/cases/{{ r.assessment.case_no }}">{{ r.assessment.case_no }}</a></td>
+        <td>{{ r.reviewer.display_name }}</td>
+        <td>{{ REVIEW_OUTCOMES[r.outcome] }}</td>
+        <td>
+          {% if r.risk_level_before != r.risk_level_after %}
+            {{ LEVEL_LABELS.get(r.risk_level_before, "－") }} →
+            <strong>{{ LEVEL_LABELS.get(r.risk_level_after, "－") }}</strong>
+          {% else %}<span class="muted">未變動</span>{% endif %}
+        </td>
+        <td>{{ "是" if r.watchlist_hit else "否" }}</td>
+        <td class="muted">{{ r.next_due_on or "－" }}</td>
+        <td class="muted">{{ r.note or "－" }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">尚無審查紀錄。</p>{% endif %}
+</div>
+{% endblock %}

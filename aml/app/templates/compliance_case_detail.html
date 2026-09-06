@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{{ case.case_no }} — 案件詳情{% endblock %}
+{% block content %}
+<h1>{{ case.case_no }}</h1>
+<p class="muted">
+  業務員 {{ case.agent.display_name }}　·　建立 {{ case.created_at.strftime("%Y-%m-%d %H:%M") }}
+  　·　送出 {{ case.submitted_at.strftime("%Y-%m-%d %H:%M") if case.submitted_at else "－" }}
+  　·　<span class="tag {{ STATUS_TONE[case.status] }}">{{ STATUS_LABELS[case.status] }}</span>
+</p>
+
+{% if case.blocked_reasons|json_list %}
+<div class="alert danger"><strong>應婉拒建立業務關係：</strong>
+  <ul>{% for r in case.blocked_reasons|json_list %}<li>{{ r }}</li>{% endfor %}</ul></div>
+{% endif %}
+{% if case.override_reasons|json_list %}
+<div class="alert warn"><strong>經強制規則列為高風險：</strong>
+  <ul>{% for r in case.override_reasons|json_list %}<li>{{ r }}</li>{% endfor %}</ul></div>
+{% endif %}
+{% if case.watchlist_hit_at %}
+<div class="alert danger"><strong>曾命中名單（{{ case.watchlist_hit_at.strftime("%Y-%m-%d %H:%M") }}）：</strong>
+  <p style="margin:.4rem 0 0">{{ case.watchlist_hit_note }}</p>
+  <p class="muted" style="margin:.4rem 0 0">
+    此紀錄於命中當下寫入，不因事後修改姓名而清除。若目前案件已無命中，請確認原因。
+  </p>
+  {% if case.hit_cleared_at %}
+  <p style="margin:.6rem 0 0">
+    <strong>覆核結論</strong>（{{ case.hit_cleared_by.display_name if case.hit_cleared_by }}
+    {{ case.hit_cleared_at.strftime("%Y-%m-%d %H:%M") }}）：{{ case.hit_cleared_note }}
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if hit_review_error %}
+<div class="alert danger">{{ hit_review_error }}</div>
+{% endif %}
+
+{% if user.role in (Role.COMPLIANCE, Role.ADMIN)
+      and case.status == AssessmentStatus.HIT_REVIEW %}
+<form method="post" action="/compliance/cases/{{ case.case_no }}/hit-review" class="card"
+      style="border-color:#f0b4b4">
+  <h2 style="color:var(--danger)">名單命中覆核</h2>
+  <p class="muted">
+    本案曾命中制裁／資恐名單，經覆核前不進入其後流程。請確認交易對象是否即為名單所列者：
+    確認為同一對象者，依範本第四點應婉拒建立業務關係；係同名誤判或姓名確經更正者，
+    案件回到原本應有的流程（高風險仍須單位主管同意）。結論將留存於案件並寫入稽核軌跡。
+  </p>
+  <div class="field">
+    <label for="note">覆核理由（必填）</label>
+    <textarea id="note" name="note" required
+              placeholder="例如：經核對出生年月日與國籍，與名單所列對象不同，判定為同名誤判。"></textarea>
+  </div>
+  <div class="btn-row">
+    <button type="submit" name="decision" value="confirmed" class="danger">
+      確認為名單所列對象，應婉拒
+    </button>
+    <button type="submit" name="decision" value="cleared" class="secondary">
+      非名單所列對象，回復原流程
+    </button>
+  </div>
+</form>
+{% endif %}
+{% if signals %}
+<div class="alert warn"><strong>作答行為異常訊號：</strong>
+  <ul>{% for s in signals %}<li>{{ s }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<div class="grid cols-4" style="margin-bottom:1rem">
+  <div class="stat {{ 'danger' if case.risk_level == RiskLevel.HIGH }}">
+    <div class="value">{{ case.total_score }}</div><div class="label">總分（門檻 {{ result.threshold }}）</div></div>
+  <div class="stat"><div class="value" style="font-size:1.15rem">{{ holder_name or "－" }}</div>
+    <div class="label">要保人</div></div>
+  <div class="stat"><div class="value" style="font-size:1.15rem">{{ holder_id or "－" }}</div>
+    <div class="label">身分證字號</div></div>
+  <div class="stat"><div class="value" style="font-size:1.15rem">{{ case.annual_premium|money }}</div>
+    <div class="label">本次保費（元）</div></div>
+</div>
+
+<div class="card">
+  <h2>保單與強化措施</h2>
+  <div class="table-wrap"><table>
+    <tbody>
+      <tr><th>保險公司</th><td>{{ case.insurer_name or "－" }}</td>
+          <th>保單號碼</th><td>{{ case.policy_no or "－" }}</td></tr>
+      <tr><th>被保險人</th><td>{{ insured_name or "－" }}</td>
+          <th>受益人</th><td>{{ beneficiary_name or "－" }}</td></tr>
+      <tr><th>財富來源</th><td colspan="3">{{ case.wealth_source or "－" }}</td></tr>
+      <tr><th>資金實質來源</th><td colspan="3">{{ case.fund_source_detail or "－" }}</td></tr>
+      <tr><th>紀錄保存至</th><td>{{ case.retain_until or "－" }}</td>
+          <th>已申報 STR</th><td>{{ "是（" ~ (case.str_reference or "無編號") ~ "）" if case.str_reported else "否" }}</td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card"><h2>作答明細</h2>{% include "_answers.html" %}</div>
+
+{% if approvals %}
+<div class="card">
+  <h2>簽核紀錄</h2>
+  <ul>{% for a in approvals %}
+    <li>{{ a.created_at.strftime("%Y-%m-%d %H:%M") }}　{{ a.approver.display_name }}
+      （{{ ROLE_LABELS[a.approver_role] }}）：
+      <strong>{{ "同意" if a.decision == "approved" else "不同意" }}</strong>
+      {% if a.comment %}— {{ a.comment }}{% endif %}</li>
+  {% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if user.role in (Role.COMPLIANCE, Role.ADMIN) and not case.str_reported
+      and checks.get('suspicious') %}
+<form method="post" action="/compliance/cases/{{ case.case_no }}/str" class="card">
+  <h2>標記已申報疑似洗錢交易</h2>
+  <p class="muted">請於向法務部調查局完成申報後回填，並留存申報書與傳真資料確認回條。</p>
+  <div class="field">
+    <label for="reference">調查局申報編號／回條編號</label>
+    <input type="text" id="reference" name="reference">
+  </div>
+  <button type="submit">確認已申報</button>
+</form>
+{% endif %}
+
+<div class="card">{% set open_trail = true %}{% include "_trail.html" %}</div>
+{% endblock %}

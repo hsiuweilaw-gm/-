@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# 遷移檔多為 Alembic 自動產生，行長與匯入順序不強制；
+# 但仍檢查未使用的匯入與明顯錯誤，避免自動產生的內容夾帶問題。
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*" = ["E501", "I001", "W291"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = [
+  "B008",   # FastAPI 的 Depends() 就是設計成放在預設值
+  "UP042",  # str + Enum 為刻意選擇：SQLAlchemy Enum 欄位與樣板比對均依賴其字串行為，
+            # 改用 StrEnum 會變動既有資料的序列化結果
+]

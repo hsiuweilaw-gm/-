@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}簽核 {{ case.case_no }}{% endblock %}
+{% block content %}
+<h1>案件簽核　{{ case.case_no }}</h1>
+<p class="muted">
+  業務員 {{ case.agent.display_name }}　·　送出
+  {{ case.submitted_at.strftime("%Y-%m-%d %H:%M") if case.submitted_at else "－" }}　·　狀態
+  <span class="tag {{ STATUS_TONE[case.status] }}">{{ STATUS_LABELS[case.status] }}</span>
+</p>
+
+{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+
+{% if case.status == AssessmentStatus.BLOCKED %}
+<div class="alert danger">
+  <strong>本案應婉拒建立業務關係（範本第四點），不進入同意流程。</strong>
+  <ul>{% for r in case.blocked_reasons|json_list %}<li>{{ r }}</li>{% endfor %}</ul>
+</div>
+{% elif case.override_reasons|json_list %}
+<div class="alert warn">
+  <strong>本案經強制規則列為高風險：</strong>
+  <ul>{% for r in case.override_reasons|json_list %}<li>{{ r }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="grid cols-4" style="margin-bottom:1rem">
+  <div class="stat {{ 'danger' if case.risk_level == RiskLevel.HIGH }}">
+    <div class="value">{{ case.total_score }}</div><div class="label">總分（門檻 {{ result.threshold }}）</div></div>
+  <div class="stat"><div class="value" style="font-size:1.2rem">{{ holder_name or "－" }}</div>
+    <div class="label">要保人</div></div>
+  <div class="stat"><div class="value" style="font-size:1.2rem">{{ holder_id or "－" }}</div>
+    <div class="label">身分證字號</div></div>
+  <div class="stat"><div class="value" style="font-size:1.2rem">{{ case.annual_premium|money }}</div>
+    <div class="label">本次保費（元）</div></div>
+</div>
+
+<div class="card"><h2>作答明細</h2>{% include "_answers.html" %}</div>
+
+{% if approvals %}
+<div class="card">
+  <h2>簽核紀錄</h2>
+  <ul>{% for a in approvals %}
+    <li>{{ a.created_at.strftime("%Y-%m-%d %H:%M") }}　{{ a.approver.display_name }}
+      （{{ ROLE_LABELS[a.approver_role] }}）：
+      <strong>{{ "同意" if a.decision == "approved" else "不同意" }}</strong>
+      {% if a.comment %}— {{ a.comment }}{% endif %}</li>
+  {% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if case.status == AssessmentStatus.PENDING_APPROVAL %}
+<form method="post" action="/review/{{ case.case_no }}/decision" class="card">
+  <h2>簽核</h2>
+  <p class="muted">
+    同意前應依範本第五點第一款第二目，採取合理措施瞭解客戶財富及資金來源，並於下列欄位記載。
+  </p>
+  <div class="field">
+    <label for="wealth_source">客戶財富來源</label>
+    <textarea id="wealth_source" name="wealth_source">{{ case.wealth_source or '' }}</textarea>
+  </div>
+  <div class="field">
+    <label for="fund_source_detail">本次保費資金之實質來源</label>
+    <textarea id="fund_source_detail" name="fund_source_detail">{{ case.fund_source_detail or '' }}</textarea>
+  </div>
+  <div class="field">
+    <label for="comment">簽核意見</label>
+    <textarea id="comment" name="comment"></textarea>
+  </div>
+  <div class="btn-row">
+    <button type="submit" name="decision" value="approved">同意建立業務關係</button>
+    <button type="submit" name="decision" value="rejected" class="danger">不同意</button>
+  </div>
+</form>
+{% endif %}
+
+<div class="card">{% include "_trail.html" %}</div>
+{% endblock %}

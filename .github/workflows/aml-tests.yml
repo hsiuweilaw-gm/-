@@ -1,0 +1,83 @@
+name: aml-tests
+
+# 洗錢防制客戶風險評估系統的測試與靜態檢查。
+#
+# 評分邏輯、風險門檻、強制高風險與擋件規則、年度報表版面，都直接對應
+# 主管機關函令與公司內控制度的具體要求。任何變更都必須先通過這些測試，
+# 才能確保系統的判定結果與已報備的制度一致。
+on:
+  pull_request:
+    paths:
+      - "aml/**"
+      - ".github/workflows/aml-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "aml/**"
+      - ".github/workflows/aml-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # 兩個資料庫都跑。正式環境用 PostgreSQL，開發與測試預設用 SQLite，
+    # 兩者在時區、欄位長度、排序上的差異只會在正式環境爆炸，必須持續比對。
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgresql]
+    defaults:
+      run:
+        working-directory: aml
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aml
+          POSTGRES_PASSWORD: aml
+          POSTGRES_DB: aml_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aml"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            aml/requirements.txt
+            aml/requirements-dev.txt
+
+      - name: 安裝相依套件
+        run: pip install -r requirements-dev.txt
+
+      - name: 安裝瀏覽器
+        # 業務員畫面隱藏分數的防線在前端 JavaScript，需真實瀏覽器驗證。
+        # 瀏覽器路徑由測試自行解析，這裡只負責安裝。
+        run: playwright install --with-deps chromium
+
+      - name: 靜態檢查
+        run: ruff check app scripts tests
+
+      - name: 測試
+        env:
+          AML_TEST_DATABASE_URL: ${{ matrix.database == 'postgresql'
+            && 'postgresql+psycopg://aml:aml@localhost:5432/aml_test' || '' }}
+        run: pytest -q
+
+      - name: 驗證遷移可套用於 PostgreSQL
+        if: matrix.database == 'postgresql'
+        env:
+          AML_DATABASE_URL: postgresql+psycopg://aml:aml@localhost:5432/aml_test
+        run: |
+          alembic downgrade base
+          alembic upgrade head

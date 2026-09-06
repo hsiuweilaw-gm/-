@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}登入 — 洗錢防制客戶風險評估系統{% endblock %}
+{% block content %}
+<div style="max-width:400px;margin:3rem auto">
+  <h1 style="text-align:center">洗錢防制客戶風險評估系統</h1>
+  {% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="card">
+    <div class="field">
+      <label for="username">帳號</label>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+    </div>
+    <div class="field">
+      <label for="password">密碼</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" style="width:100%">登入</button>
+  </form>
+  <p class="muted" style="text-align:center">
+    本系統存取紀錄全程留存。請勿共用帳號，離開時務必登出。
+  </p>
+</div>
+{% endblock %}

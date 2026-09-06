@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}洗錢防制監控儀表板{% endblock %}
+{% block content %}
+<h1>洗錢防制監控儀表板</h1>
+<p class="muted">
+  統計期間：{{ summary.period_start.strftime("%Y-%m-%d") }} ～ {{ summary.period_end.strftime("%Y-%m-%d") }}
+  （本月至今）　·　資料即時反映業務端送出之每一筆評估
+</p>
+
+<div class="grid cols-4" style="margin-bottom:1rem">
+  <div class="stat"><div class="value">{{ summary.total_cases }}</div>
+    <div class="label">本期評估件數</div></div>
+  <div class="stat danger"><div class="value">{{ summary.high_risk_cases }}</div>
+    <div class="label">高風險件數（{{ "%.1f%%"|format(summary.high_risk_ratio * 100) }}）</div></div>
+  <div class="stat warn"><div class="value">{{ summary.pending_approval_cases }}</div>
+    <div class="label">待主管同意</div></div>
+  <div class="stat danger"><div class="value">{{ summary.hit_review_cases }}</div>
+    <div class="label">待洗防覆核</div></div>
+  <div class="stat {{ 'danger' if login_signal_serious else 'warn' if login_signal_total else '' }}">
+    <div class="value">{{ login_signal_total }}</div>
+    <div class="label"><a href="/compliance/anomalies">登入異常（近 30 天）</a></div></div>
+  <div class="stat danger"><div class="value">{{ summary.blocked_cases }}</div>
+    <div class="label">應婉拒擋件</div></div>
+</div>
+<div class="grid cols-4" style="margin-bottom:1rem">
+  <div class="stat"><div class="value">{{ summary.override_cases }}</div>
+    <div class="label">經強制規則提升</div></div>
+  <div class="stat"><div class="value">{{ summary.str_reported_cases }}</div>
+    <div class="label">已申報 STR</div></div>
+  <div class="stat"><div class="value">{{ summary.offshore_remittance_cases }}</div>
+    <div class="label">境外電匯／OIU</div></div>
+  <div class="stat"><div class="value">{{ summary.draft_cases }}</div>
+    <div class="label">尚未送出草稿</div></div>
+  <div class="stat {{ 'danger' if overdue_reviews }}"><div class="value">{{ overdue_reviews }}</div>
+    <div class="label">逾期未定期審查</div></div>
+</div>
+
+{% if watchlist_hits %}
+<div class="card" style="border-color:#f0b4b4">
+  <h2 style="color:var(--danger)">曾命中制裁／資恐／PEP 名單（{{ watchlist_hits|length }} 件）</h2>
+  <p class="muted">
+    命中一經發生即留痕，<strong>不因業務員事後修改姓名或放棄草稿而消失</strong>。
+    請逐案確認：命中是否為同名誤判、業務端是否確實停止招攬、有無改以其他寫法重新送件。
+  </p>
+  {% if abandoned %}
+  <div class="alert danger">
+    <strong>下列 {{ abandoned|length }} 件命中後停留在草稿超過 24 小時未送出，請優先追查：</strong>
+    {{ abandoned | map(attribute='case_no') | join('、') }}
+  </div>
+  {% endif %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>單位</th><th>命中時間</th>
+      <th>命中內容</th><th>目前狀態</th><th></th></tr></thead>
+    <tbody>{% for c in watchlist_hits %}
+      <tr class="flagged">
+        <td>{{ c.case_no }}</td>
+        <td>{{ c.agent.display_name }}</td>
+        <td>{{ org_names.get(c.org_unit_id, "－") }}</td>
+        <td class="muted">{{ c.watchlist_hit_at.strftime("%m/%d %H:%M") }}</td>
+        <td style="font-size:.82rem">{{ c.watchlist_hit_note }}</td>
+        <td><span class="tag {{ STATUS_TONE[c.status] }}">{{ STATUS_LABELS[c.status] }}</span></td>
+        <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/compliance/cases/{{ c.case_no }}">複核</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
+{% if str_pending %}
+<div class="card" style="border-color:#f0b4b4">
+  <h2 style="color:var(--danger)">待申報疑似洗錢交易（{{ str_pending|length }} 件）</h2>
+  <p class="muted">
+    範本第九點：不論交易金額多寡均應申報，經專責主管核定後
+    <strong>2 個營業日內</strong>向法務部調查局申報。
+  </p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>送出時間</th><th>總分</th><th></th></tr></thead>
+    <tbody>{% for c in str_pending %}
+      <tr class="flagged">
+        <td>{{ c.case_no }}</td><td>{{ c.agent.display_name }}</td>
+        <td>{{ c.submitted_at.strftime("%m/%d %H:%M") if c.submitted_at else "－" }}</td>
+        <td>{{ c.total_score }}</td>
+        <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/compliance/cases/{{ c.case_no }}">處理</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>待處理案件（{{ queue|length }} 件）</h2>
+  {% if queue %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>單位</th><th>送出時間</th>
+      <th>總分</th><th>狀態</th><th></th></tr></thead>
+    <tbody>{% for c in queue %}
+      <tr {% if c.status == AssessmentStatus.BLOCKED %}class="flagged"{% endif %}>
+        <td>{{ c.case_no }}</td><td>{{ c.agent.display_name }}</td>
+        <td>{{ org_names.get(c.org_unit_id, "－") }}</td>
+        <td>{{ c.submitted_at.strftime("%m/%d %H:%M") if c.submitted_at else "－" }}</td>
+        <td>{{ c.total_score }}</td>
+        <td><span class="tag {{ STATUS_TONE[c.status] }}">{{ STATUS_LABELS[c.status] }}</span></td>
+        <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/compliance/cases/{{ c.case_no }}">檢視</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">目前沒有待處理案件。</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>作答行為異常訊號（近 90 天，共 {{ signal_total }} 件）</h2>
+  <p class="muted">
+    系統依需求向業務員即時揭露分數，因此需監控是否有為規避高風險而調整作答之情形。
+    下列訊號取自唯增稽核軌跡，業務員無從修改。
+  </p>
+  {% if signals %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>總分</th><th>等級</th><th>訊號</th><th></th></tr></thead>
+    <tbody>{% for s in signals %}
+      <tr class="flagged">
+        <td>{{ s.case_no }}</td><td>{{ s.agent_name }}</td>
+        <td>{{ s.final_score }}</td><td>{{ s.final_level }}</td>
+        <td>{% for sig in s.signals %}<div>{{ sig }}</div>{% endfor %}</td>
+        <td><a class="btn secondary" style="padding:.25rem .7rem;font-size:.82rem"
+               href="/compliance/cases/{{ s.case_no }}">複核</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% if signal_total > signals|length %}
+    <p><a href="/compliance/anomalies">檢視全部 {{ signal_total }} 件 →</a></p>
+  {% endif %}
+  {% else %}<p class="muted">近 90 天無異常訊號。</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>各風險構面平均分數</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>構面</th><th>件數</th><th>平均風險分數</th><th>風險等級</th></tr></thead>
+    <tbody>{% for dim in summary.dimensions.values() %}
+      <tr><td>{{ dim.label }}</td><td>{{ dim.total_count }}</td>
+        <td>{{ "%.2f"|format(dim.average_score) }}</td>
+        <td>{{ risk_band(dim.average_score) }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="muted">此表即為年度報表「平均風險分數」之即時版本，可隨時掌握年度申報數字走勢。</p>
+</div>
+{% endblock %}

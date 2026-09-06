@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}行為異常訊號{% endblock %}
+{% block content %}
+<h1>行為異常訊號</h1>
+<form method="get" action="/compliance/anomalies" class="btn-row" style="margin-bottom:1rem">
+  <label for="days" style="margin:0">回溯天數</label>
+  <input type="number" id="days" name="days" value="{{ days }}" min="1" max="730" style="width:8rem">
+  <button type="submit">查詢</button>
+</form>
+
+<div class="alert info">
+  本頁為第二道防線之控制措施，分為作答與登入兩部分。業務員雖已看不到分數與等級，
+  但仍看得到「須照會主管」的警示隨作答出現與消失，反覆嘗試即可摸索出關鍵題目，
+  因此作答過程仍須被看見；登入行為則反映帳號是否遭代用或外洩。
+  所有訊號均取自唯增稽核軌跡，使用端無從修改。
+</div>
+
+<div class="card">
+  <h2>作答行為：近 {{ days }} 天共 {{ signals|length }} 件</h2>
+  {% if signals %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>案號</th><th>業務員</th><th>總分</th><th>等級</th>
+      <th>訊號數</th><th>訊號內容</th><th></th></tr></thead>
+    <tbody>{% for s in signals %}
+      <tr class="flagged">
+        <td>{{ s.case_no }}</td><td>{{ s.agent_name }}</td>
+        <td>{{ s.final_score }}</td><td>{{ s.final_level }}</td>
+        <td>{{ s.severity }}</td>
+        <td>{% for sig in s.signals %}<div>{{ sig }}</div>{% endfor %}</td>
+        <td><a href="/compliance/cases/{{ s.case_no }}">複核</a></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">此期間內無異常訊號。</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>登入行為：近 {{ days }} 天共 {{ login_signals|length }} 件</h2>
+  <p class="muted">
+    訊號刻意從嚴設定。偵測項目愈多、誤報愈多，誤報一多就沒有人看，
+    真正的異常反而被埋掉。門檻可依實際流量調整。
+  </p>
+  {% if login_signals %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>時間</th><th>訊號</th><th>對象</th><th>說明</th></tr></thead>
+    <tbody>{% for s in login_signals %}
+      <tr {% if s.severity >= 3 %}class="flagged"{% endif %}>
+        <td class="muted">{{ s.at.strftime("%m/%d %H:%M") }}</td>
+        <td><span class="tag {{ 'danger' if s.severity >= 3 else 'warn' if s.severity == 2 else 'muted' }}">
+          {{ s.label }}</span></td>
+        <td>{{ s.subjects|join("、") }}</td>
+        <td>{{ s.detail }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">此期間內無登入異常訊號。</p>{% endif %}
+</div>
+{% endblock %}

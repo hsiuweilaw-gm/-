@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}洗錢防制客戶風險評估系統{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+{% if user %}
+<header class="topbar">
+  <span class="brand">洗錢防制客戶風險評估</span>
+  <nav>
+    {% if user.role in (Role.AGENT,) %}
+      <a href="/assessments">我的評估案件</a>
+    {% endif %}
+    {% if user.role in (Role.SUPERVISOR, Role.COMPLIANCE, Role.ADMIN) %}
+      <a href="/review">待簽核</a>
+    {% endif %}
+    {% if user.role in (Role.SUPERVISOR, Role.COMPLIANCE, Role.AUDITOR, Role.ADMIN) %}
+      <a href="/compliance">監控儀表板</a>
+      <a href="/compliance/cases">案件查詢</a>
+      <a href="/compliance/reviews">定期審查</a>
+      <a href="/compliance/anomalies">行為異常</a>
+      <a href="/compliance/watchlist">名單管理</a>
+      <a href="/reports">報表匯出</a>
+    {% endif %}
+    {% if user.role == Role.ADMIN %}<a href="/admin">系統管理</a>{% endif %}
+    <span class="whoami">{{ user.display_name }}（{{ ROLE_LABELS[user.role] }}）</span>
+    <form method="post" action="/logout">
+      <button class="secondary" style="padding:.3rem .7rem;font-size:.85rem">登出</button>
+    </form>
+  </nav>
+</header>
+{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

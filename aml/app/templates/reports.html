@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}報表匯出{% endblock %}
+{% block content %}
+<h1>報表匯出</h1>
+
+<div class="grid cols-2">
+  <form method="get" action="/reports/board.xlsx" class="card">
+    <h2>董事會定期報告</h2>
+    <p class="muted">
+      期間可自訂為月、季或半年。內容含風險分布、高風險與擋件明細、單位別分布，
+      供依內控手冊 BIC06-03 九定期於董事會提報。
+    </p>
+    <div class="grid cols-2">
+      <div class="field"><label for="b_start">起日</label>
+        <input type="date" id="b_start" name="start" value="{{ default_start }}" required></div>
+      <div class="field"><label for="b_end">迄日</label>
+        <input type="date" id="b_end" name="end" value="{{ today }}" required></div>
+    </div>
+    <button type="submit">匯出董事會報告（.xlsx）</button>
+  </form>
+
+  <form method="get" action="/reports/annual.xlsx" class="card">
+    <h2>年度主管機關申報報表</h2>
+    <p class="muted">
+      版面比照主管機關 115 年格式（件數／占比／平均風險分數／風險等級；產品風險另以保費金額加權）。
+      範本第十點第三款：風險評估報告應每年更新並送主管機關備查。
+    </p>
+    <div class="field">
+      <label for="roc_year">民國年度</label>
+      <input type="number" id="roc_year" name="roc_year" value="{{ roc_year }}" min="100" max="200" required>
+    </div>
+    <button type="submit">匯出年度報表（.xlsx）</button>
+  </form>
+
+  <form method="get" action="/reports/register.xlsx" class="card">
+    <h2>案件清冊</h2>
+    <p class="muted">
+      供內部稽核查核與金融檢查調閱。洗防專責與稽核角色匯出為明文，其餘角色自動遮罩個資。
+    </p>
+    <div class="grid cols-2">
+      <div class="field"><label for="r_start">起日</label>
+        <input type="date" id="r_start" name="start" value="{{ default_start }}" required></div>
+      <div class="field"><label for="r_end">迄日</label>
+        <input type="date" id="r_end" name="end" value="{{ today }}" required></div>
+    </div>
+    <button type="submit">匯出案件清冊（.xlsx）</button>
+  </form>
+
+  <div class="card">
+    <h2>申報時程提醒</h2>
+    <ul class="muted" style="padding-left:1.2rem">
+      <li><strong>每年 4 月底前</strong>：防制洗錢及打擊資恐內部控制制度聲明書，
+        由董事長、總經理、稽核主管、洗防專責主管聯名出具，提報董事會通過後依指定方式申報
+        （範本第十二點第四款）。</li>
+      <li><strong>每年</strong>：風險評估報告更新並送主管機關備查（範本第十點第三款第四目）。</li>
+      <li><strong>定期</strong>：於董事會提報年度防制洗錢教育訓練計畫及訓練結果
+        （內控手冊 BIC06-03 九）。</li>
+      <li><strong>個案</strong>：疑似洗錢交易經專責主管核定後 2 個營業日內向調查局申報
+        （範本第九點）。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h2>匯出紀錄</h2>
+  <p class="muted">金融檢查時可據此證明報表之產出時點、產出人與內容雜湊值。</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>報表</th><th>期間</th><th>產出時間</th><th>產出人</th><th>筆數</th><th>SHA-256</th></tr></thead>
+    <tbody>{% for r in recent %}
+      <tr>
+        <td>{{ {"board": "董事會報告", "annual": "年度報表", "register": "案件清冊"}.get(r.report_type, r.report_type) }}</td>
+        <td>{{ r.period_label }}</td>
+        <td>{{ r.generated_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>{{ r.generator.display_name }}</td>
+        <td>{{ r.row_count }}</td>
+        <td class="muted" style="font-family:monospace;font-size:.72rem">{{ r.checksum[:16] }}…</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

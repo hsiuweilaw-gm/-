@@ -1,0 +1,30 @@
+{# 作答明細表。review 與 compliance 兩處共用。 #}
+<div class="table-wrap"><table>
+  <thead><tr><th>類別</th><th>風險因子</th><th>作答</th><th>分數</th></tr></thead>
+  <tbody>
+  {% for category in questionnaire.categories %}
+    {% for factor in category.factors %}
+      {% set chosen = answers.get(factor.code) %}
+      {% set option = factor.option(chosen) if chosen else none %}
+      <tr>
+        <td class="muted">{{ category.label }}</td>
+        <td>{{ factor.label }}</td>
+        <td>{{ option.label if option else "－" }}</td>
+        <td>{{ option.score if option else "－" }}</td>
+      </tr>
+    {% endfor %}
+  {% endfor %}
+    <tr><th colspan="3">合計</th><th>{{ result.total_score }} / {{ result.max_score }}</th></tr>
+  </tbody>
+</table></div>
+
+{% set groups = [("refusal", "應婉拒事由（範本第四點）", questionnaire.refusal_checks),
+                 ("mandatory", "強制高風險條件（範本第五點）", questionnaire.mandatory_high_risk),
+                 ("suspicious", "疑似洗錢態樣（範本附錄）", questionnaire.suspicious_patterns)] %}
+{% for key, title, items in groups %}
+  {% set selected = checks.get(key, []) %}
+  {% if selected %}
+    <h3>{{ title }}</h3>
+    <ul>{% for c in items if c.code in selected %}<li>{{ c.label }}</li>{% endfor %}</ul>
+  {% endif %}
+{% endfor %}

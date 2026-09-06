@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}驗證碼 — 洗錢防制客戶風險評估系統{% endblock %}
+{% block content %}
+<div style="max-width:400px;margin:3rem auto">
+  <h1 style="text-align:center">輸入驗證碼</h1>
+  {% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+  <form method="post" action="/login/verify" class="card">
+    <div class="field">
+      <label for="code">手機驗證器 App 顯示的 6 位數</label>
+      <input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9]*" maxlength="7" required autofocus
+             style="font-size:1.6rem;letter-spacing:.3em;text-align:center">
+    </div>
+    <button type="submit" style="width:100%">驗證</button>
+  </form>
+  <p class="muted" style="text-align:center">
+    驗證碼每 30 秒更換一次。若一直失敗，請確認手機的日期與時間設為「自動設定」。<br>
+    手機遺失或無法取得驗證碼，請聯絡系統管理者重設。
+  </p>
+</div>
+{% endblock %}

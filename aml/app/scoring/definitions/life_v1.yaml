@@ -1,0 +1,183 @@
+# 客戶風險辨識標準評估檢核表（壽險）— 問卷定義 v1
+#
+# 依據：
+#   1. 看見保險經紀人股份有限公司 內部控制制度手冊（114年11月修訂）BIC06-03 洗錢防制作業
+#   2. 保險經紀人公司（含兼營保險經紀人業務之銀行）防制洗錢及打擊資恐、資助武擴注意事項範本
+#      （113年12月31日金管保綜字第1130436219號函備查）
+#
+# 本檔為「版本化」定義：法規或內部制度修訂時，應新增版本檔而非就地修改，
+# 以確保既有案件仍能以當時生效之版本重現評分（範本第六點紀錄重建要求）。
+id: life
+version: 1
+name: 客戶風險辨識標準評估檢核表（壽險）
+effective_from: "2026-01-01"
+high_risk_threshold: 30       # 30 分以上（含）為高風險；29 分以下（含）為一般風險
+level_labels:
+  general: 一般風險
+  high: 高風險
+
+categories:
+  - code: GEO
+    label: 地域風險
+    factors:
+      - code: geo_domicile
+        label: 自然人／法人（公司設立或住居所）
+        annual_key: geo
+        options:
+          - {code: sanctioned_area, label: "要保人來自制裁名單子(分)公司或地區（詳主管機關公告名單）", score: 5, annual_bucket: 制裁名單, flags: [sanctioned_geography]}
+          - {code: overseas,        label: "其餘國外子(分)公司", score: 3, annual_bucket: 國外}
+          - {code: municipality,    label: "公司設立或住居所位於直轄市或臺灣離島", score: 2, annual_bucket: 直轄OR離島}
+          - {code: other_county,    label: "公司設立或住居所位於臺灣其他縣市", score: 1, annual_bucket: 其它縣市}
+
+      - code: geo_nationality
+        label: 國籍
+        annual_key: nationality
+        options:
+          - {code: sanctioned_country, label: "要保人來自制裁名單國家或地區（詳主管機關公告名單）", score: 5, annual_bucket: 制裁名單, flags: [sanctioned_geography]}
+          - {code: foreign,            label: "前項以外之外籍人士或外國法人", score: 3, annual_bucket: 外國人}
+          - {code: roc_citizen,        label: "我國公民且無前二項情況者", score: 1, annual_bucket: 本國公民}
+
+  - code: CUSTOMER
+    label: 客戶風險
+    factors:
+      - code: cust_occupation
+        label: 背景、職業與社會經濟活動特性
+        annual_key: occupation
+        options:
+          - {code: tier1, label: "當鋪、金融代辦中心、地下匯兌等提供金融服務之非銀行單位、賭場、賽馬或賭博、提供虛擬資產服務之事業或人員等相關行業", score: 5, annual_bucket: 第1類}
+          - {code: tier2, label: "國內外政治人士、軍火商、珠寶、骨董或名畫古玩商、銀樓、提供第三方支付服務之事業或人員", score: 3, annual_bucket: 第2類}
+          - {code: tier3, label: "不動產買賣商、律師、會計師、貿易商、證券或期貨仲介經紀商", score: 2, annual_bucket: 第3類}
+          - {code: tier4, label: "其他", score: 1, annual_bucket: 第4類}
+
+      - code: cust_entity_type
+        label: 自然人或非自然人
+        annual_key: entity
+        # 紙本表單由高風險排到低風險，主管機關年度報表則是自然人在前，兩者順序不同。
+        annual_order: [自然人, 非自然人]
+        options:
+          - {code: legal_entity, label: "非自然人", score: 3, annual_bucket: 非自然人}
+          - {code: natural,      label: "自然人", score: 1, annual_bucket: 自然人}
+
+      - code: cust_source
+        label: 來源（與業務員如何認識）
+        annual_key: source
+        options:
+          - {code: inbound,   label: "客戶主動要求投保", score: 5, annual_bucket: 主動投保}
+          - {code: cold_call, label: "業務員陌生拜訪", score: 3, annual_bucket: 陌生拜訪}
+          - {code: referral,  label: "舊識轉介紹", score: 2, annual_bucket: 舊識轉介}
+          - {code: existing,  label: "既有客戶或親朋好友", score: 1, annual_bucket: 客戶親友}
+
+      - code: cust_amount
+        label: 交易金額
+        options:
+          - {code: over_5m,  label: "本次保單保費 500 萬元以上，或分多張保單者亦同", score: 5}
+          - {code: m50_5m,   label: "本次保單保費 50 萬～500 萬（不含）間", score: 3}
+          - {code: under_50w, label: "本次保單保費 50 萬以下", score: 1}
+
+  - code: PRODUCT
+    label: 產品風險
+    factors:
+      - code: product_type
+        label: 具有高保單價值準備金或現金價值險種
+        annual_key: product
+        options:
+          - {code: oiu,        label: "OIU 保單", score: 5, annual_bucket: OIU, flags: [oiu_policy]}
+          - {code: ilp_annuity, label: "投資型保險／年金險", score: 4, annual_bucket: 投資/年金}
+          - {code: fx_ul,      label: "外幣保單／萬能利變保單", score: 3, annual_bucket: 外幣/萬能利變}
+          - {code: life,       label: "一般壽險", score: 2, annual_bucket: 一般壽險}
+          - {code: health_pa,  label: "健康險、傷害險", score: 1, annual_bucket: 健康/傷害/旅平/產險}
+
+  - code: TRANSACTION
+    label: 交易風險
+    factors:
+      - code: txn_channel
+        label: 交易管道
+        annual_key: channel
+        options:
+          - {code: online,       label: "網路投保", score: 5, annual_bucket: 網路投保}
+          - {code: telemarketing, label: "電話行銷", score: 3, annual_bucket: 電銷}
+          - {code: face_to_face, label: "業務員面對面招攬", score: 1, annual_bucket: 面對面}
+
+      - code: txn_fund_source
+        label: 保費來源
+        options:
+          - {code: borrowed,  label: "貸款或保單借款／保單解約或定存解約／其他", score: 5}
+          - {code: investment, label: "投資收入／繼承或被贈與", score: 3}
+          - {code: salary,    label: "工作收入／既有存款／退休金", score: 1}
+
+      - code: txn_payer
+        label: 付保費之人
+        options:
+          - {code: oiu_wire, label: "OIU 境外電匯", score: 5, flags: [offshore_remittance]}
+          - {code: third_party, label: "要保人或被保險人或受益人以外之人", score: 3}
+          - {code: none,     label: "無上述二種情形", score: 1}
+
+# ---------------------------------------------------------------------------
+# 婉拒事由（範本第四點）。勾選任一項即強制擋件，不得建立業務關係。
+# ---------------------------------------------------------------------------
+refusal_checks:
+  - code: fake_identity
+    label: 疑似使用假名、人頭、虛設行號或虛設法人團體投保
+  - code: refuse_documents
+    label: 客戶拒絕提供審核客戶身分措施相關文件
+  - code: agent_unverifiable
+    label: 由代理人辦理，且查證代理之事實及身分資料有困難
+  - code: forged_document
+    label: 持用偽、變造身分證明文件
+  - code: copies_only
+    label: 出示之身分證明文件均為影本（依規定得以影本辦理者除外）
+  - code: dubious_documents
+    label: 文件資料可疑、模糊不清，不願提供佐證資料或無法查證
+  - code: unusual_delay
+    label: 客戶不尋常拖延應補充之身分證明文件
+  - code: sanction_list_hit
+    label: 建立業務關係對象為資恐防制法指定制裁之個人、法人或團體，或經認定／追查之恐怖分子或團體
+  - code: unexplained_anomaly
+    label: 建立業務關係或交易時有其他異常情形，客戶無法提出合理說明
+  - code: ubo_unidentifiable
+    label: 客戶為法人／團體／信託，且無法提供實質受益人資訊（問答集 Q7：不得建立新業務關係）
+
+# ---------------------------------------------------------------------------
+# 強制高風險條件。命中任一項，不論總分多寡一律列為高風險並啟動強化措施
+# （範本第五點第一款、第二款）。
+# ---------------------------------------------------------------------------
+mandatory_high_risk:
+  - code: pep
+    label: 客戶、實質受益人或高階管理人員為國內外重要政治性職務人士（PEP）或其家庭成員、密切關係人
+  - code: high_risk_country
+    label: 客戶、資金或交易涉及金管會函轉國際防制洗錢組織公告之高風險或不合作國家／地區
+  - code: ubo_complex
+    label: 所有權或控制權結構異常複雜，或涉及境外法人、無記名股票
+  - code: adverse_media
+    label: 客戶涉及媒體報導之特殊重大案件（內控手冊 BIC06-03 六）
+  - code: prior_str
+    label: 該客戶或關係人曾經本公司申報疑似洗錢交易
+
+# ---------------------------------------------------------------------------
+# 疑似洗錢、資恐或資助武擴交易態樣（範本附錄）。
+# 勾選任一項即強制高風險，並自動建立 STR 評估待辦交付專責主管核定
+# （範本第九點：不論金額多寡均應申報，核定後 2 個營業日內申報）。
+# ---------------------------------------------------------------------------
+suspicious_patterns:
+  - code: A2
+    label: 繳交大額保費或短期內密集投保高保價金商品，資金來源無法合理說明或與身分收入顯不相當
+  - code: A3
+    label: 對保障內容毫不關心，僅關注保單借款、解約或變更受益人程序
+  - code: A5
+    label: 原僅小額定期繳費，突然要求訂立一次付清保費之大額契約
+  - code: A9
+    label: 要求將保險給付支付給與保單持有人或指定受益人無明顯關係之第三方
+  - code: B1
+    label: 自高風險國家或地區匯入（或匯至該等國家或地區）之款項達特定金額以上
+  - code: B4
+    label: 自境外重複或溢繳保費，並要求以現金退回或退匯至非原匯款帳戶
+  - code: C1
+    label: 利用大量現金、約當現金、高價值商品或無關聯第三方之資金、資產或信用
+  - code: C2
+    label: 繳交大額保費後短期內申請大額保單借款或終止契約，且無法合理說明
+  - code: D1
+    label: 客戶涉及媒體報導之特殊重大案件，且金流交易時間與案件發生時間相近
+  - code: E1
+    label: 交易有關對象為目標性金融制裁之個人、法人或團體，或資金疑與恐怖活動、資助武擴有關
+  - code: Z1
+    label: 其他經公司內部程序認定屬異常之交易
