@@ -45,6 +45,25 @@
 
 完整清單：`twmask --list-types`
 
+## 免安裝執行檔（Windows／macOS）
+
+不想安裝 Python 的話，可直接下載
+[Releases](https://github.com/hsiuweilaw-gm/-/releases/latest) 的免安裝版：
+
+| 平台 | 檔案 |
+|---|---|
+| Windows | `TWPIIMasker-GUI.exe`（圖形介面）、`twmask.exe`（命令列，支援拖曳檔案） |
+| macOS（Apple Silicon） | `TWPIIMasker-mac-AppleSilicon.zip` |
+| macOS（Intel） | `TWPIIMasker-mac-Intel.zip` |
+
+macOS 首次開啟需解除 Gatekeeper 封鎖（本工具未購買憑證簽章）：
+
+```bash
+xattr -cr /path/to/TWPIIMasker.app
+```
+
+**iOS（iPhone／iPad）不支援**——iOS 不允許這類直接讀寫本機檔案的應用程式。
+
 ## 安裝（一次性，之後可離線使用）
 
 需求：Python 3.9 以上（Windows 可至 [python.org](https://www.python.org/downloads/) 下載，
