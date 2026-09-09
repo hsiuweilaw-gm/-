@@ -64,15 +64,20 @@
 
 
 ──────────────────────────────────
- 三、選哪一個檔案下載
+ 三、適用機型
 ──────────────────────────────────
 
-  TWPIIMasker-mac-AppleSilicon.zip  → M1／M2／M3／M4 等晶片的 Mac
-  TWPIIMasker-mac-Intel.zip         → 2020 年以前的 Intel 處理器 Mac
+本版本適用 Apple Silicon 晶片的 Mac（M1／M2／M3／M4 等），
+也就是 2020 年底以後出廠的機種。
 
-不確定的話：點左上角蘋果圖示 →「關於這台 Mac」，
-看「晶片」欄位寫 Apple M 開頭就選 AppleSilicon，
-寫 Intel 就選 Intel。
+確認方式：點左上角蘋果圖示 →「關於這台 Mac」，
+「晶片」欄位顯示 Apple M 開頭即是。
+
+若你的 Mac 是 Intel 處理器（2020 年以前），本執行檔無法執行，
+請改用原始碼安裝方式（需先安裝 Python）：
+
+    pip install .
+    twmask-gui
 
 
 ──────────────────────────────────

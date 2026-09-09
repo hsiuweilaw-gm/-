@@ -43,9 +43,11 @@ jobs:
         run: python -m pytest tests/ -q
 
       - name: Build executables
+        # --collect-data docx：python-docx 的 templates/*.xml 不會被自動收錄，
+        # 少了它處理 Word 檔會失敗（macOS 實測失敗，Windows 亦不應依賴預設行為）
         run: |
-          pyinstaller --onefile --windowed --name TWPIIMasker-GUI packaging/entry_gui.py
-          pyinstaller --onefile --console --name twmask packaging/entry_cli.py
+          pyinstaller --onefile --windowed --collect-data docx --name TWPIIMasker-GUI packaging/entry_gui.py
+          pyinstaller --onefile --console --collect-data docx --name twmask packaging/entry_cli.py
 
       - name: Smoke test built executables
         env:
@@ -71,16 +73,12 @@ jobs:
             pii-masker/dist/twmask.exe
 
   # ------------------------------------------------------------------ macOS
+  # 只建 Apple Silicon：GitHub 的 Intel 機型（macos-13）已淘汰，
+  # 指派後會無限排隊並卡住整個流程。Intel Mac 使用者請改用原始碼安裝方式。
   build-macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest   # Apple Silicon（M1 以後）
-            arch: AppleSilicon
-          - runner: macos-13       # Intel
-            arch: Intel
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
+    env:
+      ARCH: AppleSilicon
     defaults:
       run:
         working-directory: pii-masker
@@ -102,8 +100,8 @@ jobs:
         # GUI 用 onedir（macOS 的 .app 標準形式，啟動較快也較穩定），
         # CLI 用 onefile 方便直接放桌面使用
         run: |
-          pyinstaller --windowed --name TWPIIMasker packaging/entry_gui.py
-          pyinstaller --onefile --console --name twmask packaging/entry_cli.py
+          pyinstaller --windowed --collect-data docx --name TWPIIMasker packaging/entry_gui.py
+          pyinstaller --onefile --console --collect-data docx --name twmask packaging/entry_cli.py
 
       - name: Smoke test built binaries
         run: |
@@ -126,12 +124,12 @@ jobs:
           cp dist/twmask pkg/twmask
           ditto dist/TWPIIMasker.app pkg/TWPIIMasker.app
           ditto -c -k --sequesterRsrc --keepParent pkg \
-                "TWPIIMasker-mac-${{ matrix.arch }}.zip"
+                "TWPIIMasker-mac-$ARCH.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-mac-${{ matrix.arch }}
-          path: pii-masker/TWPIIMasker-mac-${{ matrix.arch }}.zip
+          name: dist-mac-AppleSilicon
+          path: pii-masker/TWPIIMasker-mac-AppleSilicon.zip
 
   # ---------------------------------------------------------------- Release
   release:

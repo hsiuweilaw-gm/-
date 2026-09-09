@@ -16,10 +16,10 @@
 
 | 檔案 | 適用機型 |
 |---|---|
-| **TWPIIMasker-mac-AppleSilicon.zip** | M1／M2／M3／M4 等晶片的 Mac |
-| **TWPIIMasker-mac-Intel.zip** | 2020 年以前的 Intel 處理器 Mac |
+| **TWPIIMasker-mac-AppleSilicon.zip** | M1／M2／M3／M4 等 Apple Silicon 晶片的 Mac |
 
-不確定機型：點左上角蘋果圖示 →「關於這台 Mac」，看「晶片」欄位。
+確認機型：點左上角蘋果圖示 →「關於這台 Mac」，「晶片」欄位顯示 Apple M 開頭即是。
+Intel 處理器的 Mac（2020 年以前）請改用原始碼安裝方式。
 
 > **iPhone／iPad（iOS）無法執行本工具。** iOS 不允許這類直接讀寫本機
 > Word／Excel／PDF 的應用程式，請在 Mac 或 Windows 電腦上使用。
