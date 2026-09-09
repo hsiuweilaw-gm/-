@@ -53,8 +53,10 @@
 | 平台 | 檔案 |
 |---|---|
 | Windows | `TWPIIMasker-GUI.exe`（圖形介面）、`twmask.exe`（命令列，支援拖曳檔案） |
-| macOS（Apple Silicon） | `TWPIIMasker-mac-AppleSilicon.zip` |
-| macOS（Intel） | `TWPIIMasker-mac-Intel.zip` |
+| macOS（Apple Silicon，M1 以後） | `TWPIIMasker-mac-AppleSilicon.zip` |
+
+Intel 處理器的 Mac 沒有現成執行檔（GitHub 已淘汰 Intel 建置機），
+請改用下方的原始碼安裝方式。
 
 macOS 首次開啟需解除 Gatekeeper 封鎖（本工具未購買憑證簽章）：
 
