@@ -324,3 +324,53 @@ def test_xlsx_customer_identity_not_leaked_via_agent_slot(tmp_path):
     # 其他個資照遮
     assert "F228969519" not in values and "秀山路" not in values
     assert "0913456769" not in values
+
+
+def test_docx_without_header_is_not_given_one(tmp_path):
+    """沒有頁首的文件，處理後不可被加上頁首部件。
+
+    原本存取 section.header 會讓 python-docx 依內建範本「新建」空頁首：
+    既更動了文件結構，打包成執行檔後也會因找不到範本而整份處理失敗
+    （macOS 實測；該範本以 docx/parts/../templates/ 相對路徑載入，
+    在 PyInstaller 封裝下該目錄不存在）。
+    """
+    import zipfile
+    from docx import Document
+
+    src = tmp_path / "無頁首.docx"
+    doc = Document()
+    doc.add_paragraph("要保人：王小明 身分證 A123456789")
+    doc.save(src)
+
+    def hdr_ftr_parts(path):
+        with zipfile.ZipFile(path) as z:
+            return sorted(n for n in z.namelist() if "header" in n or "footer" in n)
+
+    assert hdr_ftr_parts(src) == []
+    assert run([str(src)]) == 0
+    out = tmp_path / "無頁首_masked.docx"
+    assert hdr_ftr_parts(out) == []          # 不得多出頁首／頁尾部件
+    with zipfile.ZipFile(out) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+    assert "王小明" not in xml and "王○○" in xml
+    assert "A123456789" not in xml
+
+
+def test_docx_existing_header_is_still_masked(tmp_path):
+    """有頁首的文件，頁首內的個資仍要遮（上一項修正不得誤傷）。"""
+    import zipfile
+    from docx import Document
+
+    src = tmp_path / "有頁首.docx"
+    doc = Document()
+    doc.sections[0].header.paragraphs[0].text = "要保人：李大華"
+    doc.add_paragraph("本文 身分證 A123456789")
+    doc.save(src)
+
+    assert run([str(src)]) == 0
+    out = tmp_path / "有頁首_masked.docx"
+    with zipfile.ZipFile(out) as z:
+        blob = "".join(z.read(n).decode("utf-8")
+                       for n in z.namelist() if n.endswith(".xml"))
+    assert "李大華" not in blob and "李○○" in blob   # 頁首個資有遮
+    assert "A123456789" not in blob

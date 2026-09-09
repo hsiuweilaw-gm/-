@@ -140,6 +140,12 @@ def mask_docx(input_path: str, output_path: str,
         for part, name in parts:
             if part is None:
                 continue
+            # 只處理「本節自己有定義」的頁首／頁尾。
+            # is_linked_to_previous 為真代表本節沒有自己的定義，此時去讀它的
+            # 段落會讓 python-docx 依內建範本「新建」一個空頁首寫進輸出檔
+            # ——既更動了原文件結構，也在打包成執行檔後因找不到範本而失敗。
+            if getattr(part, "is_linked_to_previous", False):
+                continue
             prefix = "第%d節%s" % (si, name)
             for para, location, hint in _iter_block_paragraphs(part, prefix):
                 _mask_paragraph(para, engine, report, location, hint)
