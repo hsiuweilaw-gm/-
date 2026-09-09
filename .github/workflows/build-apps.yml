@@ -1,0 +1,175 @@
+name: build-apps
+
+# 以 PyInstaller 打包 Windows 與 macOS 的免安裝執行檔，
+# 各平台先跑完整測試套件與實機煙霧測試，全部通過才發佈到 GitHub Release。
+# 觸發方式：手動觸發（workflow_dispatch）或推送 v* 標籤。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "發佈版本標籤（如 v1.7.0）"
+        required: false
+        default: "v1.7.0"
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.version }}
+
+jobs:
+  # ---------------------------------------------------------------- Windows
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pii-masker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller pytest
+
+      - name: Run test suite
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m pytest tests/ -q
+
+      - name: Build executables
+        run: |
+          pyinstaller --onefile --windowed --name TWPIIMasker-GUI packaging/entry_gui.py
+          pyinstaller --onefile --console --name twmask packaging/entry_cli.py
+
+      - name: Smoke test built executables
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python samples/make_samples.py smoke
+          .\dist\twmask.exe smoke\示範_理賠申請書.docx smoke\示範_客戶名單.xlsx smoke\示範_契約通知書.pdf
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          foreach ($f in @("smoke\示範_理賠申請書_masked.docx",
+                           "smoke\示範_客戶名單_masked.xlsx",
+                           "smoke\示範_契約通知書_masked.pdf")) {
+            if (-not (Test-Path $f)) { Write-Error "missing output: $f"; exit 1 }
+          }
+          # 確認圖形介面版的 tkinter 已正確打包
+          .\dist\TWPIIMasker-GUI.exe --selftest
+          if ($LASTEXITCODE -ne 0) { Write-Error "GUI selftest failed"; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: |
+            pii-masker/dist/TWPIIMasker-GUI.exe
+            pii-masker/dist/twmask.exe
+
+  # ------------------------------------------------------------------ macOS
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest   # Apple Silicon（M1 以後）
+            arch: AppleSilicon
+          - runner: macos-13       # Intel
+            arch: Intel
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: pii-masker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller pytest
+
+      - name: Run test suite
+        run: python -m pytest tests/ -q
+
+      - name: Build app bundle and CLI binary
+        # GUI 用 onedir（macOS 的 .app 標準形式，啟動較快也較穩定），
+        # CLI 用 onefile 方便直接放桌面使用
+        run: |
+          pyinstaller --windowed --name TWPIIMasker packaging/entry_gui.py
+          pyinstaller --onefile --console --name twmask packaging/entry_cli.py
+
+      - name: Smoke test built binaries
+        run: |
+          set -e
+          python samples/make_samples.py smoke
+          ./dist/twmask smoke/示範_理賠申請書.docx smoke/示範_客戶名單.xlsx smoke/示範_契約通知書.pdf
+          for f in smoke/示範_理賠申請書_masked.docx \
+                   smoke/示範_客戶名單_masked.xlsx \
+                   smoke/示範_契約通知書_masked.pdf; do
+            [ -f "$f" ] || { echo "missing output: $f"; exit 1; }
+          done
+          # 確認 .app 內的 tkinter（Tcl/Tk）已正確打包——否則使用者雙擊才會發現打不開
+          ./dist/TWPIIMasker.app/Contents/MacOS/TWPIIMasker --selftest
+
+      - name: Package for distribution
+        run: |
+          set -e
+          mkdir -p pkg
+          cp packaging/mac-readme.txt "pkg/使用說明-請先看我.txt"
+          cp dist/twmask pkg/twmask
+          ditto dist/TWPIIMasker.app pkg/TWPIIMasker.app
+          ditto -c -k --sequesterRsrc --keepParent pkg \
+                "TWPIIMasker-mac-${{ matrix.arch }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac-${{ matrix.arch }}
+          path: pii-masker/TWPIIMasker-mac-${{ matrix.arch }}.zip
+
+  # ---------------------------------------------------------------- Release
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Delete existing release of same version (rebuild case)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "$VERSION" -y --cleanup-tag
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create "$VERSION"
+          $(find artifacts -type f | sort)
+          --target ${{ github.sha }}
+          --title "台灣個資遮罩工具 $VERSION（Windows／macOS 免安裝版）"
+          --notes-file pii-masker/packaging/release-notes.md
+
+      - name: Mark build done
+        run: |
+          git tag -f "build-done-$VERSION"
+          git push -f origin "build-done-$VERSION"
+
+  mark-failure:
+    needs: [build-windows, build-macos, release]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git tag -f "build-failed-$VERSION"
+          git push -f origin "build-failed-$VERSION"
